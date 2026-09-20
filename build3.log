@@ -1,0 +1,117 @@
+Picked up JAVA_TOOL_OPTIONS: -Xmx3g
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.3.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Type-safe project accessors is an incubating feature.
+
+> Configure project :app
+WARNING: The option setting 'android.enableJetifier=true' is deprecated.
+The current default is 'false'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preFossReleaseBuild UP-TO-DATE
+> Task :app:mergeFossReleaseJniLibFolders UP-TO-DATE
+> Task :app:mergeFossReleaseNativeLibs UP-TO-DATE
+> Task :app:stripFossReleaseDebugSymbols UP-TO-DATE
+> Task :app:extractFossReleaseNativeSymbolTables UP-TO-DATE
+> Task :app:mergeFossReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkFossReleaseDuplicateClasses UP-TO-DATE
+> Task :app:dataBindingMergeDependencyArtifactsFossRelease UP-TO-DATE
+> Task :app:extractFossReleaseSupportedLocales
+> Task :app:generateFossReleaseLocaleConfig UP-TO-DATE
+> Task :app:generateFossReleaseResources
+> Task :app:packageFossReleaseResources
+> Task :app:processFossReleaseNavigationResources
+> Task :app:generateFossReleaseBuildConfig
+> Task :app:javaPreCompileFossRelease UP-TO-DATE
+> Task :app:mergeFossReleaseArtProfile UP-TO-DATE
+> Task :app:checkFossReleaseAarMetadata UP-TO-DATE
+> Task :app:compileFossReleaseNavigationResources UP-TO-DATE
+> Task :app:mapFossReleaseSourceSetPaths
+> Task :app:createFossReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksFossRelease UP-TO-DATE
+> Task :app:parseFossReleaseLocalResources
+
+> Task :app:processFossReleaseMainManifest
+/home/Justice/fossify-gallery/app/src/main/AndroidManifest.xml:7:5-10:49 Warning:
+	uses-permission#android.permission.WRITE_EXTERNAL_STORAGE@android:maxSdkVersion was tagged at AndroidManifest.xml:7 to replace other declarations but no other declaration present
+/home/Justice/fossify-gallery/app/src/main/AndroidManifest.xml:31:5-33:31 Warning:
+	uses-permission#android.permission.CAMERA was tagged at AndroidManifest.xml:31 to remove other declarations but no other declaration present
+/home/Justice/fossify-gallery/app/src/main/AndroidManifest.xml Warning:
+	uses-permission#com.samsung.android.providers.context.permission.WRITE_USE_APP_FEATURE_SURVEY was tagged at AndroidManifest.xml:0 to remove other declarations but no other declaration present
+
+> Task :app:generateFossReleaseRFile UP-TO-DATE
+> Task :app:mergeFossReleaseResources
+> Task :app:processFossReleaseManifest
+> Task :app:dataBindingGenBaseClassesFossRelease UP-TO-DATE
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:mergeFossReleaseStartupProfile UP-TO-DATE
+> Task :app:generateFossReleaseAssets UP-TO-DATE
+> Task :app:mergeFossReleaseAssets UP-TO-DATE
+> Task :app:compressFossReleaseAssets UP-TO-DATE
+> Task :app:extractFossReleaseVersionControlInfo
+> Task :app:validateSigningFossRelease UP-TO-DATE
+> Task :app:writeFossReleaseAppMetadata UP-TO-DATE
+> Task :app:writeFossReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:processFossReleaseManifestForPackage
+> Task :app:processFossReleaseResources
+> Task :app:kspFossReleaseKotlin
+
+> Task :app:compileFossReleaseKotlin
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:134:39 'fun get(p0: String!): Any?' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:217:31 'fun get(p0: String!): Any?' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:217:77 'fun get(p0: String!): Any?' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:275:25 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:347:23 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:347:38 'fun getSize(p0: Point!): Unit' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/EditActivity.kt:359:18 'fun into(p0: Int, p1: Int): FutureTarget<Bitmap!>!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:187:37 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:188:42 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:481:26 'fun toggleHideOnScroll(hideOnScroll: Boolean): Unit' is deprecated. This feature is broken for now.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1026:42 'fun get(p0: String!): Any?' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1086:17 'fun startActivityForResult(p0: Intent, p1: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1092:17 'fun startActivityForResult(p0: Intent, p1: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1114:34 Unchecked cast of 'Any' to 'ArrayList<Directory>'.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1121:39 Unchecked cast of 'Any' to 'ArrayList<Directory>'.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1412:30 Unchecked cast of 'Any' to 'ArrayList<Directory>'.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1490:19 Unchecked cast of 'Any' to 'ArrayList<Directory>'.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:1645:13 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/PhotoVideoActivity.kt:257:52 'static fun fromHtml(p0: String!): Spanned!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/ViewPagerActivity.kt:201:37 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/ViewPagerActivity.kt:523:17 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/ViewPagerActivity.kt:882:38 'fun getDrawable(p0: Int): Drawable!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/ViewPagerActivity.kt:1324:15 'fun execute(vararg p0: Void!): AsyncTask<Void!, Void!, ArrayList<ThumbnailItem>!>!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/activities/ViewPagerActivity.kt:1462:21 'fun startActivityForResult(p0: Intent, p1: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:544:33 'val defaultDisplay: Display!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:547:13 'fun getRealMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:550:13 'fun getMetrics(p0: DisplayMetrics!): Unit' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:585:37 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'Date?'.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:912:29 'static fun with(p0: Activity): RequestManager' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:917:14 'fun into(p0: Int, p1: Int): FutureTarget<Drawable!>!' is deprecated. Deprecated in Java.
+w: file:///home/Justice/fossify-gallery/app/src/main/kotlin/org/fossify/gallery/extensions/Activity.kt:943:14 'fun getLatLong(p0: FloatArray!): Boolean' is deprecated. Deprecated in Java.
+
+> Task :app:compileFossReleaseJavaWithJavac
+> Task :app:mergeFossReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :app:processFossReleaseJavaRes UP-TO-DATE
+> Task :app:mergeFossReleaseJavaResource UP-TO-DATE
+> Task :app:expandFossReleaseArtProfileWildcards
+> Task :app:minifyFossReleaseWithR8
+> Task :app:compileFossReleaseArtProfile
+> Task :app:convertShrunkResourcesToBinaryFossRelease
+> Task :app:optimizeFossReleaseResources
+> Task :app:packageFossRelease
+> Task :app:createFossReleaseApkListingFileRedirect
+> Task :app:assembleFossRelease
+
+[Incubating] Problems report is available at: file:///home/Justice/fossify-gallery/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.3.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2m 18s
+48 actionable tasks: 24 executed, 24 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.3.1/userguide/configuration_cache_enabling.html
+gradle rc=0

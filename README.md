@@ -12,7 +12,7 @@ A fork of [Fossify Gallery](https://github.com/FossifyOrg/Gallery) tuned for ver
 | Thumbnail disk cache capped at 250 MB, so a big library re-decoded full photos on every scroll | Thumbnail cache raised to 3 GB |
 | Rows for unchanged folders were rewritten to the database on every launch | Skipped when a folder was served from the cache |
 
-Everything else (features, settings, package name `org.fossify.gallery`) is stock, so it drops in over the original with your settings, pinned folders and favorites intact. Because it is signed with its own key you must uninstall the F-Droid/Obtainium build first (back up its data if you want to keep it, see below), and updates then come from this repo's Releases (Obtainium: add `https://github.com/heyitsj0n/FastGallery`).
+Everything else (features, settings, package name `org.fossify.gallery`) is stock, so it drops in over the original with your settings, pinned folders and favorites intact. Because it is signed with its own key you must uninstall the F-Droid/Obtainium build first (back up its data if you want to keep it, see below), and updates then come from this repo's Releases (Obtainium: add `https://github.com/firestarter1996/FastGallery`).
 
 ## Install keeping your data (root)
 
@@ -39,4 +39,4 @@ GPL-3.0, same as upstream. Not affiliated with Fossify.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=heyitsj0n/FastGallery&type=Date)](https://star-history.com/#heyitsj0n/FastGallery&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=firestarter1996/FastGallery&type=Date)](https://star-history.com/#firestarter1996/FastGallery&Date)
