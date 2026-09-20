@@ -57,6 +57,7 @@ class GetMediaAsynctask(
             )
         }
 
+        ScanCache.forceNextScan = false   // fast fork: a forced rescan lasts one pass
         return mediaFetcher.groupMedia(media, pathToUse)
     }
 
