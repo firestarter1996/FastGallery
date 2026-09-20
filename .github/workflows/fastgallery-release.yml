@@ -48,7 +48,7 @@ jobs:
           APK=$(ls app/build/outputs/apk/foss/release/*-foss-release.apk | head -1)
           cp "$APK" "FastGallery-$(grep -oP '^VERSION_NAME=\K.*' gradle.properties).apk"
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.run_number }}
           name: FastGallery build ${{ github.run_number }}
