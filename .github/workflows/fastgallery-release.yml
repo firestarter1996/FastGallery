@@ -1,0 +1,58 @@
+name: FastGallery release (APK)
+
+# Builds the FOSS flavour, signs it with the FastGallery key (repo secrets FASTGALLERY_KEYSTORE_B64 /
+# FASTGALLERY_KEYSTORE_PASS) and publishes a GitHub Release so Obtainium can track updates.
+# Only code changes trigger it (docs/CI edits are ignored); also on demand.
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - "fastlane/**"
+      - "LICENSE*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-sign-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+      - name: Restore signing key
+        env:
+          KS_B64: ${{ secrets.FASTGALLERY_KEYSTORE_B64 }}
+        run: echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/fastgallery.jks"
+      - name: Version from run number
+        run: |
+          BASE=$(grep -oP '^VERSION_NAME=\K.*' gradle.properties | sed 's/-fast.*//')
+          sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$((2800 + GITHUB_RUN_NUMBER))/" gradle.properties
+          sed -i "s/^VERSION_NAME=.*/VERSION_NAME=${BASE}-fast${GITHUB_RUN_NUMBER}/" gradle.properties
+          grep -E '^VERSION_' gradle.properties
+      - name: Build signed FOSS release
+        env:
+          SIGNING_KEY_ALIAS: fastgallery
+          SIGNING_KEY_PASSWORD: ${{ secrets.FASTGALLERY_KEYSTORE_PASS }}
+          SIGNING_STORE_FILE: ${{ runner.temp }}/fastgallery.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.FASTGALLERY_KEYSTORE_PASS }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleFossRelease --no-daemon
+          ls -la app/build/outputs/apk/foss/release/
+          APK=$(ls app/build/outputs/apk/foss/release/*-foss-release.apk | head -1)
+          cp "$APK" "FastGallery-$(grep -oP '^VERSION_NAME=\K.*' gradle.properties).apk"
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: FastGallery build ${{ github.run_number }}
+          files: FastGallery-*.apk
+          body: |
+            Fossify Gallery fork with the unchanged-folder scan cache and a 3 GB thumbnail cache.
+            Signed with the FastGallery key. Package `org.fossify.gallery` (update in place over earlier FastGallery builds).
