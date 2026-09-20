@@ -113,6 +113,7 @@ import org.fossify.gallery.extensions.storeDirectoryItems
 import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
+import org.fossify.gallery.helpers.ScanCache
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -1364,14 +1365,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             Thread {
                 try {
                     directoryDB.insert(newDir)
-                    if (folder != RECYCLE_BIN && folder != FAVORITES) {
-                        mediaDB.insertAll(newMedia)
+                    if (folder != RECYCLE_BIN && folder != FAVORITES && !ScanCache.servedFromCache.contains(folder)) {
+                        mediaDB.insertAll(newMedia)   // fast fork: rows served from the DB are not rewritten
                     }
                 } catch (ignored: Exception) {
                 }
             }.start()
         }
 
+        ScanCache.forceNextScan = false   // fast fork: a pull-to-refresh forces exactly one full pass
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
@@ -1727,6 +1729,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun refreshItems() {
+        ScanCache.forceNextScan = true   // fast fork: pull-to-refresh bypasses the unchanged-folder cache
         getDirectories()
     }
 

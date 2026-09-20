@@ -54,6 +54,23 @@ class MediaFetcher(val context: Context) {
                 }
             }
 
+            // fast fork: an unchanged folder (same dir mtime + same cached row count + same scan options) is served from the DB
+            val scanExtra = "$filterMedia|$isPickImage|$isPickVideo|$getProperDateTaken|$getProperLastModified|$getProperFileSize|$getVideoDurations|${context.config.shouldShowHidden}"
+            val cacheable = curMedia.isEmpty() && curPath != FAVORITES && curPath != RECYCLE_BIN && !ScanCache.forceNextScan
+            val dirMtime = if (cacheable) ScanCache.dirMtime(curPath) else 0L
+            if (cacheable && dirMtime > 0L) {
+                val stored = ScanCache.get(context, curPath)
+                if (stored != null) {
+                    val cached = context.mediaDB.getMediaFromPath(curPath)
+                    if (ScanCache.matches(stored, dirMtime, cached.size, scanExtra)) {
+                        ScanCache.servedFromCache.add(curPath)
+                        curMedia.addAll(cached)
+                        sortMedia(curMedia, context.config.getFolderSorting(curPath))
+                        return curMedia
+                    }
+                }
+            }
+
             if (curMedia.isEmpty()) {
                 val newMedia = getMediaInFolder(
                     curPath, isPickImage, isPickVideo, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
@@ -74,6 +91,10 @@ class MediaFetcher(val context: Context) {
                     }
                 }
                 curMedia.addAll(newMedia)
+                ScanCache.servedFromCache.remove(curPath)
+                if (cacheable && dirMtime > 0L && !shouldStop) {
+                    ScanCache.put(context, curPath, dirMtime, newMedia.size, scanExtra)
+                }
             }
         }
 
