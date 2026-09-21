@@ -54,8 +54,13 @@ class MediaFetcher(val context: Context) {
                 }
             }
 
-            // fast fork: an unchanged folder (same dir mtime + same cached row count + same scan options) is served from the DB
-            val scanExtra = "$filterMedia|$isPickImage|$isPickVideo|$getProperDateTaken|$getProperLastModified|$getProperFileSize|$getVideoDurations|${context.config.shouldShowHidden}"
+            // fast fork: an unchanged folder (same dir mtime + same cached row count + same scan options) is served from the DB.
+            // The signature deliberately ignores isPickImage/isPickVideo (2026-09-20 fast4): a file-picker launch used to get its
+            // own signature, so every picker open missed the cache and rescanned all 68k files (~30 s). Picker launches now hit
+            // the same cache and just filter the cached rows by type; they never WRITE the cache, because their row count is
+            // type-filtered and would poison the signature for normal launches.
+            val isPicker = isPickImage || isPickVideo
+            val scanExtra = "$filterMedia|$getProperDateTaken|$getProperLastModified|$getProperFileSize|$getVideoDurations|${context.config.shouldShowHidden}"
             val cacheable = curMedia.isEmpty() && curPath != FAVORITES && curPath != RECYCLE_BIN && !ScanCache.forceNextScan
             val dirMtime = if (cacheable) ScanCache.dirMtime(curPath) else 0L
             if (cacheable && dirMtime > 0L) {
@@ -64,7 +69,11 @@ class MediaFetcher(val context: Context) {
                     val cached = context.mediaDB.getMediaFromPath(curPath)
                     if (ScanCache.matches(stored, dirMtime, cached.size, scanExtra)) {
                         ScanCache.servedFromCache.add(curPath)
-                        curMedia.addAll(cached)
+                        curMedia.addAll(when {
+                            isPickImage && !isPickVideo -> cached.filter { !it.isVideo() }
+                            isPickVideo && !isPickImage -> cached.filter { it.isVideo() }
+                            else -> cached
+                        })
                         sortMedia(curMedia, context.config.getFolderSorting(curPath))
                         return curMedia
                     }
@@ -92,7 +101,7 @@ class MediaFetcher(val context: Context) {
                 }
                 curMedia.addAll(newMedia)
                 ScanCache.servedFromCache.remove(curPath)
-                if (cacheable && dirMtime > 0L && !shouldStop) {
+                if (cacheable && dirMtime > 0L && !shouldStop && !isPicker) {
                     ScanCache.put(context, curPath, dirMtime, newMedia.size, scanExtra)
                 }
             }
