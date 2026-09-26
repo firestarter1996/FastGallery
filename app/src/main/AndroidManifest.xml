@@ -62,7 +62,8 @@
             android:name=".activities.MainActivity"
             android:configChanges="orientation"
             android:exported="true"
-            android:resizeableActivity="true">
+            android:resizeableActivity="true"
+            android:theme="@style/LaunchTheme">
 
             <intent-filter>
                 <action android:name="android.intent.action.PICK" />

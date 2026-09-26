@@ -9,4 +9,12 @@
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/black</item>
     </style>
 
+    <!-- FastGallery fast8: MainActivity's manifest theme. Android does not create a launch splash window for an
+         activity whose theme is translucent, so tapping the icon goes straight to the first frame (the albums).
+         MainActivity.onCreate calls setTranslucent(false) + an opaque window format right away, so the album grid
+         is a normal opaque window (activity below gets stopped, no blending) for its whole life. -->
+    <style name="LaunchTheme" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+    </style>
+
 </resources>

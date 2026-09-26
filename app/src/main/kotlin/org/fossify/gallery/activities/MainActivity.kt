@@ -2,7 +2,9 @@ package org.fossify.gallery.activities
 
 import android.content.ClipData
 import android.content.Intent
+import android.graphics.PixelFormat
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewTreeObserver
 import android.os.Handler
@@ -215,6 +217,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             applySplashDuties()
         }
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // LaunchTheme is translucent on 12+ only so Android skips its launch splash; become a normal opaque
+            // activity before the first frame (activity below is stopped, window composes without blending).
+            setTranslucent(false)
+            window.setFormat(PixelFormat.OPAQUE)
+        }
         setContentView(binding.root)
         appLaunched(BuildConfig.APPLICATION_ID)
 
