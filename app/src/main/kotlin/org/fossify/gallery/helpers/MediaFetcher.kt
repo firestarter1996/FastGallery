@@ -77,6 +77,7 @@ class MediaFetcher(val context: Context) {
                         cachedAll.filter { !it.name.startsWith('.') }
                     }
                     if (ScanCache.matches(stored, dirMtime, cached.size, scanExtra)) {
+                        PerfTrace.mark("scan_cache_hit", "n=${cached.size} $curPath")
                         ScanCache.servedFromCache.add(curPath)
                         curMedia.addAll(when {
                             isPickImage && !isPickVideo -> cached.filter { !it.isVideo() }
@@ -108,6 +109,9 @@ class MediaFetcher(val context: Context) {
                 }
             }
 
+            if (curMedia.isEmpty() && cacheable && curPath != FAVORITES && curPath != RECYCLE_BIN) {
+                PerfTrace.mark("scan_cache_miss", "mtime=$dirMtime stored=${ScanCache.get(context, curPath)} $curPath")
+            }
             if (curMedia.isEmpty()) {
                 // FastGallery: Favorites (a handful of files) gets its dates from a query for just those paths, instead of
                 // forcing the 50k-row global maps to be built (3.5 s, and it is the first folder the rescan visits)

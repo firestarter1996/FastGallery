@@ -34,11 +34,15 @@ object ScanCache {
         return parts.size == 3 && parts[0] == mtime.toString() && parts[1] == count.toString() && parts[2] == extra
     }
 
-    /** same as [matches] but ignoring the folder mtime: the DB still holds exactly what the last real scan found */
+    /**
+     * The folder was fully scanned before with the same scan options, so an incremental rescan (diffing the DB rows
+     * against the folder listing) gives the right answer. The row count is deliberately NOT compared: NewPhotoFetcher
+     * adds a row the moment a photo/screenshot is taken, which used to force a full 8-15 s walk of Screenshots/Camera.
+     */
     fun matchesExceptMtime(stored: String?, count: Int, extra: String): Boolean {
         if (stored == null) return false
         val parts = stored.split("|", limit = 3)
-        return parts.size == 3 && parts[1] == count.toString() && parts[2] == extra
+        return parts.size == 3 && parts[2] == extra
     }
 
     fun clear(context: Context) {

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- FastGallery: Android 12+ always shows a launch splash on cold start. Make it a plain black screen (the app's
+         background) instead of the icon on a white circle, so opening the app looks like going straight to the albums. -->
+    <style name="AppTheme" parent="AppTheme.Base">
+        <item name="android:windowSplashScreenBackground">@android:color/black</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/black</item>
+    </style>
+
+</resources>

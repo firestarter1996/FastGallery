@@ -10,6 +10,7 @@ import android.os.SystemClock
 import com.bumptech.glide.Glide
 import com.bumptech.glide.request.FutureTarget
 import org.fossify.commons.helpers.FAVORITES
+import org.fossify.gallery.App
 import org.fossify.gallery.extensions.buildThumbnailRequest
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.directoryDB
@@ -146,6 +147,14 @@ class ThumbnailPreloader : JobService() {
 
         fun submit(path: String, key: com.bumptech.glide.signature.ObjectKey, spec: ThumbSizes.Spec) {
             if (path.endsWith(".svg", true)) return
+            // the gallery is open: leave the decoders and disk to the screen the user is looking at
+            if (App.startedActivities > 0) {
+                drain(0)
+                while (App.startedActivities > 0 && !stopped) {
+                    SystemClock.sleep(2000)
+                }
+                if (stopped) return
+            }
             inFlight.add(
                 ctx.buildThumbnailRequest(path, spec.crop, spec.round, key, skipMemoryCache = true, animate = spec.animate)
                     .submit(spec.width, spec.height)
