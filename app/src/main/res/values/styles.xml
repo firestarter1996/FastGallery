@@ -2,6 +2,9 @@
 
     <style name="AppTheme" parent="AppTheme.Base" />
 
+    <!-- MainActivity's manifest theme; translucent only on Android 12+ (values-v31) to skip the launch splash -->
+    <style name="LaunchTheme" parent="AppTheme" />
+
     <style name="CustomBottomSheetDialogTheme" parent="Theme.Design.Light.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/CustomBottomSheetStyle</item>
     </style>
