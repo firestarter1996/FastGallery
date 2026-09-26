@@ -82,6 +82,7 @@ import org.fossify.gallery.extensions.fixDateTaken
 import org.fossify.gallery.extensions.getShortcutImage
 import org.fossify.gallery.extensions.isThisOrParentFolderHidden
 import org.fossify.gallery.extensions.loadImage
+import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.removeNoMedia
 import org.fossify.gallery.extensions.showRecycleBinEmptyingDialog
@@ -904,6 +905,9 @@ class DirectoryAdapter(
                     onError = {
                         dirThumbnail.scaleType = ImageView.ScaleType.CENTER
                         dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                    },
+                    onReady = { source ->
+                        PerfTrace.onThumbReady(directory.name, directory.tmb, holder.bindingAdapterPosition, source, dirThumbnail)
                     }
                 )
             }

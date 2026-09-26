@@ -6,6 +6,7 @@ import android.graphics.drawable.PictureDrawable
 import com.bumptech.glide.Glide
 import com.bumptech.glide.GlideBuilder
 import com.bumptech.glide.load.engine.cache.InternalCacheDiskCacheFactory
+import com.bumptech.glide.load.engine.executor.GlideExecutor
 import com.bumptech.glide.Registry
 import com.bumptech.glide.annotation.GlideModule
 import com.bumptech.glide.module.AppGlideModule
@@ -23,6 +24,11 @@ class SvgModule : AppGlideModule() {
     // re-decoded 12 MP photos. 3 GB keeps roughly the whole library's thumbnails.
     override fun applyOptions(context: Context, builder: GlideBuilder) {
         builder.setDiskCache(InternalCacheDiskCacheFactory(context, 3L * 1024 * 1024 * 1024))
+        // FastGallery: Glide reads its disk cache on ONE thread by default, so a cold launch drew the album covers
+        // one per frame; 4 readers load the whole first screen of covers at once.
+        if (!org.fossify.gallery.helpers.PerfTrace.legacy) {
+            builder.setDiskCacheExecutor(GlideExecutor.newDiskCacheBuilder().setThreadCount(4).build())
+        }
     }
 
     override fun isManifestParsingEnabled() = false

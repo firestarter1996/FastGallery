@@ -6,6 +6,8 @@ import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
 import org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
 import org.fossify.commons.helpers.SORT_BY_SIZE
+import org.fossify.commons.helpers.isRPlus
+import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.helpers.*
@@ -34,8 +36,10 @@ class GetMediaAsynctask(
         val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
         val favoritePaths = context.getFavoritePaths()
         val getVideoDurations = context.config.showThumbnailVideoDuration
-        val lastModifieds = if (getProperLastModified) mediaFetcher.getLastModifieds() else HashMap()
-        val dateTakens = if (getProperDateTaken) mediaFetcher.getDateTakens() else HashMap()
+        // FastGallery: build the MediaStore-wide maps only if a folder really needs a full walk (see LazyScanMaps)
+        val lazyMaps = if (PerfTrace.legacy || (isRPlus() && !isExternalStorageManager())) null else LazyScanMaps(mediaFetcher)
+        val lastModifieds = if (getProperLastModified && lazyMaps == null) mediaFetcher.getLastModifieds() else HashMap()
+        val dateTakens = if (getProperDateTaken && lazyMaps == null) mediaFetcher.getDateTakens() else HashMap()
 
         val media = if (showAll) {
             val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && !context.config.isFolderProtected(it) }
@@ -43,7 +47,7 @@ class GetMediaAsynctask(
             foldersToScan.forEach {
                 val newMedia = mediaFetcher.getFilesFrom(
                     it, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds, dateTakens.clone() as HashMap<String, Long>, null
+                    favoritePaths, getVideoDurations, lastModifieds, dateTakens.clone() as HashMap<String, Long>, null, lazyMaps
                 )
                 media.addAll(newMedia)
             }
@@ -53,7 +57,7 @@ class GetMediaAsynctask(
         } else {
             mediaFetcher.getFilesFrom(
                 mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
-                getVideoDurations, lastModifieds, dateTakens, null
+                getVideoDurations, lastModifieds, dateTakens, null, lazyMaps
             )
         }
 
