@@ -16,6 +16,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.databinding.ActivitySettingsBinding
 import org.fossify.gallery.dialogs.*
 import org.fossify.gallery.extensions.*
+import org.fossify.gallery.jobs.ThumbnailPreloader
 import org.fossify.gallery.helpers.*
 import org.fossify.gallery.models.AlbumCover
 import java.io.File
@@ -90,6 +91,7 @@ class SettingsActivity : SimpleActivity() {
         setupFileThumbnailStyle()
         setupFolderThumbnailStyle()
         setupKeepLastModified()
+        setupNightlyThumbnailPreload()
         setupEnablePullToRefresh()
         setupAllowZoomingImages()
         setupShowHighestQuality()
@@ -564,6 +566,15 @@ class SettingsActivity : SimpleActivity() {
                 binding.settingsKeepLastModified.toggle()
                 config.keepLastModified = binding.settingsKeepLastModified.isChecked
             }
+        }
+    }
+
+    private fun setupNightlyThumbnailPreload() {
+        binding.settingsNightlyThumbnailPreload.isChecked = config.nightlyThumbnailPreload
+        binding.settingsNightlyThumbnailPreloadHolder.setOnClickListener {
+            binding.settingsNightlyThumbnailPreload.toggle()
+            config.nightlyThumbnailPreload = binding.settingsNightlyThumbnailPreload.isChecked
+            ThumbnailPreloader.schedule(this)
         }
     }
 
