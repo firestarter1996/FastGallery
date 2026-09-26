@@ -906,6 +906,7 @@ class DirectoryAdapter(
                         dirThumbnail.scaleType = ImageView.ScaleType.CENTER
                         dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
                     },
+                    sizeKind = "folder",
                     onReady = { source ->
                         PerfTrace.onThumbReady(directory.name, directory.tmb, holder.bindingAdapterPosition, source, dirThumbnail)
                     }

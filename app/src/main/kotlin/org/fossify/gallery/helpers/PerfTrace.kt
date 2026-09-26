@@ -52,6 +52,19 @@ object PerfTrace {
         if (took >= thresholdMs) mark(event, "took=$took $detail")
     }
 
+    private val mediaThumbCounts = HashMap<String, IntArray>()
+
+    /** per folder, logs a running tally of where the first 60 media-grid thumbnails came from (cache vs decoded) */
+    fun mediaThumb(folder: String, source: String) {
+        val tally = synchronized(mediaThumbCounts) {
+            val c = mediaThumbCounts.getOrPut(folder) { IntArray(2) }
+            if (c[0] + c[1] >= 60) return
+            if (source == "RESOURCE_DISK_CACHE" || source == "MEMORY_CACHE") c[0]++ else c[1]++
+            c.copyOf()
+        }
+        if ((tally[0] + tally[1]) % 20 == 0) mark("media_thumbs", "cached=${tally[0]} decoded=${tally[1]} folder=$folder")
+    }
+
     fun markGridDrawn(detail: String): Boolean {
         if (gridDrawn) return false
         gridDrawn = true

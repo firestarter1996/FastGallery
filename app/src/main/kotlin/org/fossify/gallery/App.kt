@@ -8,6 +8,8 @@ import okhttp3.Request
 import okhttp3.Response
 import org.fossify.commons.FossifyApp
 import org.fossify.gallery.helpers.PerfTrace
+import org.fossify.gallery.jobs.ThumbnailPreloader
+import org.fossify.gallery.svg.SvgModule
 
 class App : FossifyApp() {
 
@@ -22,6 +24,10 @@ class App : FossifyApp() {
         if (!PerfTrace.legacy) {
             Thread { Glide.get(this) }.start()
         }
+        Thread {
+            ThumbnailPreloader.ensureScheduled(this)
+            SvgModule.deleteOldCacheOnce(this)
+        }.start()
         Reprint.initialize(this)
         Picasso.setSingletonInstance(Picasso.Builder(this).downloader(object : Downloader {
             override fun load(request: Request) = Response.Builder().build()

@@ -579,6 +579,11 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getInt(THUMBNAIL_SPACING, 1)
         set(thumbnailSpacing) = prefs.edit().putInt(THUMBNAIL_SPACING, thumbnailSpacing).apply()
 
+    // FastGallery: render every visible thumbnail into the cache overnight while charging (ThumbnailPreloader)
+    var nightlyThumbnailPreload: Boolean
+        get() = prefs.getBoolean("nightly_thumbnail_preload", true)
+        set(nightlyThumbnailPreload) = prefs.edit().putBoolean("nightly_thumbnail_preload", nightlyThumbnailPreload).apply()
+
     var fileRoundedCorners: Boolean
         get() = prefs.getBoolean(FILE_ROUNDED_CORNERS, false)
         set(fileRoundedCorners) = prefs.edit().putBoolean(FILE_ROUNDED_CORNERS, fileRoundedCorners).apply()

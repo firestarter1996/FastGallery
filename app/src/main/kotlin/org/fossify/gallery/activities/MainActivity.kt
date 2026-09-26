@@ -45,6 +45,10 @@ import org.fossify.commons.extensions.hasPermission
 import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.internalStoragePath
 import org.fossify.commons.extensions.isExternalStorageManager
+import org.fossify.commons.extensions.baseConfig
+import org.fossify.commons.extensions.isSystemInDarkMode
+import org.fossify.commons.extensions.isAutoTheme
+import org.fossify.commons.extensions.syncGlobalConfig
 import org.fossify.commons.extensions.isGif
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isImageFast
@@ -207,6 +211,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         PerfTrace.mark("main_onCreate")
+        if (savedInstanceState == null && intent?.action == Intent.ACTION_MAIN) {
+            applySplashDuties()
+        }
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         appLaunched(BuildConfig.APPLICATION_ID)
@@ -283,6 +290,30 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         // just request the permission, tryLoadGallery will then trigger in onResume
         handleMediaPermissions()
+    }
+
+    /**
+     * FastGallery: the launcher icon now opens MainActivity directly instead of bouncing through SplashActivity
+     * (a second activity start that kept the launch splash up longer). These are the SplashActivity duties that
+     * still matter: sync the shared Fossify theme and follow the system dark mode when "auto theme" is on.
+     */
+    private fun applySplashDuties() {
+        try {
+            syncGlobalConfig {
+                if (isAutoTheme()) {
+                    val dark = isSystemInDarkMode()
+                    baseConfig.textColor = resources.getColor(
+                        if (dark) org.fossify.commons.R.color.theme_dark_text_color else org.fossify.commons.R.color.theme_light_text_color,
+                        theme
+                    )
+                    baseConfig.backgroundColor = resources.getColor(
+                        if (dark) org.fossify.commons.R.color.theme_dark_background_color else org.fossify.commons.R.color.theme_light_background_color,
+                        theme
+                    )
+                }
+            }
+        } catch (ignored: Exception) {
+        }
     }
 
     // FastGallery: draw the albums from the last session in the first frame; getDirectories() refreshes them right after

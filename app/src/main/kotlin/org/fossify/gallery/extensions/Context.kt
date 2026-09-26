@@ -18,6 +18,7 @@ import android.provider.MediaStore.Files
 import android.provider.MediaStore.Images
 import android.widget.ImageView
 import com.bumptech.glide.Glide
+import com.bumptech.glide.RequestBuilder
 import com.bumptech.glide.Priority
 import com.bumptech.glide.integration.webp.WebpBitmapFactory
 import com.bumptech.glide.integration.webp.decoder.WebpDownsampler
@@ -82,6 +83,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.asynctasks.GetMediaAsynctask
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.helpers.PerfTrace
+import org.fossify.gallery.helpers.ThumbSizes
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.helpers.GROUP_BY_DATE_TAKEN_DAILY
 import org.fossify.gallery.helpers.GROUP_BY_DATE_TAKEN_MONTHLY
@@ -623,7 +625,8 @@ fun Context.loadImage(
     signature: ObjectKey,
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
     onError: (() -> Unit)? = null,
-    onReady: ((source: String) -> Unit)? = null
+    onReady: ((source: String) -> Unit)? = null,
+    sizeKind: String? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -645,7 +648,8 @@ fun Context.loadImage(
             animate = animateGifs,
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
             onError = onError,
-            onReady = onReady
+            onReady = onReady,
+            sizeKind = sizeKind
         )
     }
 }
@@ -695,11 +699,69 @@ fun Context.loadImageBase(
     tryLoadingWithPicasso: Boolean = false,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     onError: (() -> Unit)? = null,
-    onReady: ((source: String) -> Unit)? = null
+    onReady: ((source: String) -> Unit)? = null,
+    sizeKind: String? = null
 ) {
+    if (sizeKind != null) {
+        ThumbSizes.record(this, sizeKind, target, cropThumbnails, roundCorners, animate)
+    }
+
+    var builder = buildThumbnailRequest(
+        path = path,
+        cropThumbnails = cropThumbnails,
+        roundCorners = roundCorners,
+        signature = signature,
+        skipMemoryCache = skipMemoryCacheAtPaths?.contains(path) == true,
+        animate = animate
+    ).transition(getOptionalCrossFadeTransition(crossFadeDuration))
+
+    builder = builder.listener(object : RequestListener<Drawable> {
+        override fun onLoadFailed(
+            e: GlideException?,
+            model: Any?,
+            targetBitmap: Target<Drawable>,
+            isFirstResource: Boolean
+        ): Boolean {
+            if (tryLoadingWithPicasso) {
+                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature)
+            } else {
+                onError?.invoke()
+            }
+
+            return true
+        }
+
+        override fun onResourceReady(
+            resource: Drawable,
+            model: Any,
+            targetBitmap: Target<Drawable>,
+            dataSource: DataSource,
+            isFirstResource: Boolean,
+        ): Boolean {
+            onReady?.invoke(dataSource.name)
+            return false
+        }
+    })
+
+    builder.into(target)
+}
+
+/**
+ * The Glide request used for grid thumbnails. Shared by the grids and the nightly ThumbnailPreloader so both produce
+ * the exact same disk-cache key (model, signature, size, transformations and decode options must all match).
+ */
+@SuppressLint("CheckResult")
+fun Context.buildThumbnailRequest(
+    path: String,
+    cropThumbnails: Boolean,
+    roundCorners: Int,
+    signature: ObjectKey,
+    skipMemoryCache: Boolean = false,
+    animate: Boolean = false
+): RequestBuilder<Drawable> {
     val options = RequestOptions()
         .signature(signature)
-        .skipMemoryCache(skipMemoryCacheAtPaths?.contains(path) == true)
+        .skipMemoryCache(skipMemoryCache)
         .priority(Priority.LOW)
         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
         .format(DecodeFormat.PREFER_ARGB_8888)
@@ -741,41 +803,10 @@ fun Context.loadImageBase(
     }
 
     WebpBitmapFactory.sUseSystemDecoder = false // CVE-2023-4863
-    var builder = Glide.with(applicationContext)
+    return Glide.with(applicationContext)
         .load(path)
         .apply(options)
         .set(WebpDownsampler.USE_SYSTEM_DECODER, false) // CVE-2023-4863
-        .transition(getOptionalCrossFadeTransition(crossFadeDuration))
-
-    builder = builder.listener(object : RequestListener<Drawable> {
-        override fun onLoadFailed(
-            e: GlideException?,
-            model: Any?,
-            targetBitmap: Target<Drawable>,
-            isFirstResource: Boolean
-        ): Boolean {
-            if (tryLoadingWithPicasso) {
-                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature)
-            } else {
-                onError?.invoke()
-            }
-
-            return true
-        }
-
-        override fun onResourceReady(
-            resource: Drawable,
-            model: Any,
-            targetBitmap: Target<Drawable>,
-            dataSource: DataSource,
-            isFirstResource: Boolean,
-        ): Boolean {
-            onReady?.invoke(dataSource.name)
-            return false
-        }
-    })
-
-    builder.into(target)
 }
 
 fun Context.loadSVG(

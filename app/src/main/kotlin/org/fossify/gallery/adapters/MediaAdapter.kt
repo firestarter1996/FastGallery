@@ -78,6 +78,7 @@ import org.fossify.gallery.extensions.tryCopyMoveFilesTo
 import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.extensions.updateFavoritePaths
+import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -748,6 +749,8 @@ class MediaAdapter(
                 roundCorners = roundedCorners,
                 signature = medium.getKey(),
                 skipMemoryCacheAtPaths = rotatedImagePaths,
+                sizeKind = if (isListViewType) null else "media:${medium.parentPath}",
+                onReady = { source -> PerfTrace.mediaThumb(medium.parentPath, source) },
                 onError = {
                     mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
                     mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
