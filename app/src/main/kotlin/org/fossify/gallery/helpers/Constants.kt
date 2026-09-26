@@ -261,7 +261,7 @@ const val FOLDER_STYLE_SQUARE = 1
 const val FOLDER_STYLE_ROUNDED_CORNERS = 2
 
 // animations
-const val THUMBNAIL_FADE_DURATION_MS = 150
+const val THUMBNAIL_FADE_DURATION_MS = 100 // FastGallery: was 150; cached thumbnails never fade (Glide.kt)
 
 fun getPermissionToRequest() = if (isTiramisuPlus()) PERMISSION_READ_MEDIA_IMAGES else PERMISSION_WRITE_STORAGE
 

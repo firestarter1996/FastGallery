@@ -69,7 +69,6 @@
                     android:id="@+id/directories_grid"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layoutAnimation="@anim/layout_animation"
                     android:scrollbars="none"
                     app:layoutManager="org.fossify.commons.views.MyGridLayoutManager"
                     app:spanCount="@integer/directory_columns_vertical_scroll" />

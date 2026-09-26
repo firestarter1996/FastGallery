@@ -14,7 +14,7 @@ for r, m in enumerate(d["marks"]):
     ref = imgs[before[-1]] if before else None
     idx = [i for i in range(n) if t0 < fr[i]["pts"] < min(nxt, t0 + 3000)]
     final = imgs[idx[-1]]
-    first_change = splash_first = splash_last = app_first = settled = None; nblack = 0; kinds = []
+    first_change = splash_first = splash_last = app_first = settled = strict = None; nblack = 0; kinds = []
     for i in idx:
         im = imgs[i]; t = fr[i]["pts"] - t0
         if ref is not None and np.abs(im - ref).mean() < 2: k = "S"
@@ -26,9 +26,10 @@ for r, m in enumerate(d["marks"]):
             nblack += 1; splash_first = splash_first if splash_first is not None else t; splash_last = t
         if k == "A" and app_first is None: app_first = t
         if settled is None and np.abs(im - final).mean() < 1.5: settled = t
+        if strict is None and np.abs(im - final).mean() < 0.5: strict = t
     ev = {l.split("FGPerf")[1].split()[1] if "FGPerf" in l else "": l for l in m["log"]}
     row = dict(first_change=first_change, black_frames=nblack, black_ms=(app_first - splash_first) if splash_first is not None and app_first else 0,
-               albums_visible=app_first, covers_settled=settled, am_total=int(m["am"][0].split()[-1]))
+               albums_visible=app_first, covers_settled=settled, covers_strict=strict, am_total=int(m["am"][0].split()[-1]))
     res.append(row)
     print(r, row, "".join(kinds[:40]))
 print("MEDIAN", {k: st.median([x[k] for x in res if x[k] is not None]) for k in res[0]})
