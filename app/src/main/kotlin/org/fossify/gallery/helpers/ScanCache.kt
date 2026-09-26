@@ -34,6 +34,13 @@ object ScanCache {
         return parts.size == 3 && parts[0] == mtime.toString() && parts[1] == count.toString() && parts[2] == extra
     }
 
+    /** same as [matches] but ignoring the folder mtime: the DB still holds exactly what the last real scan found */
+    fun matchesExceptMtime(stored: String?, count: Int, extra: String): Boolean {
+        if (stored == null) return false
+        val parts = stored.split("|", limit = 3)
+        return parts.size == 3 && parts[1] == count.toString() && parts[2] == extra
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }

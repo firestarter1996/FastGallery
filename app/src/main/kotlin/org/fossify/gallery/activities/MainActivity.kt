@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.ViewTreeObserver
 import android.os.Handler
 import android.provider.MediaStore
 import android.provider.MediaStore.Images
@@ -90,6 +91,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.getCachedDirectories
+import org.fossify.gallery.extensions.recentNoMediaFolders
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getDirectorySortingValue
 import org.fossify.gallery.extensions.getDirsToShow
@@ -114,6 +116,10 @@ import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.ScanCache
+import org.fossify.gallery.helpers.PerfTrace
+import org.fossify.gallery.helpers.DirSnapshot
+import org.fossify.gallery.helpers.LazyScanMaps
+import org.fossify.gallery.helpers.DiscoveryGate
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -200,6 +206,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private val binding by viewBinding(ActivityMainBinding::inflate)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        PerfTrace.mark("main_onCreate")
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         appLaunched(BuildConfig.APPLICATION_ID)
@@ -270,8 +277,33 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             launchSearchActivity()
         }
 
+        if (savedInstanceState == null) {
+            showDirSnapshot()
+        }
+
         // just request the permission, tryLoadGallery will then trigger in onResume
         handleMediaPermissions()
+    }
+
+    // FastGallery: draw the albums from the last session in the first frame; getDirectories() refreshes them right after
+    private fun showDirSnapshot() {
+        if (PerfTrace.legacy || mIsThirdPartyIntent || config.showAll || config.defaultFolder.isNotEmpty()) {
+            return
+        }
+
+        if (!hasAllPermissions(getPermissionsToRequest())) {
+            return
+        }
+
+        val dirs = DirSnapshot.load(this) ?: return
+        PerfTrace.mark("snapshot_loaded", "count=${dirs.size}")
+        if (config.groupDirectSubfolders) {
+            mDirs = dirs.clone() as ArrayList<Directory>
+        }
+
+        setupLayoutManager()
+        checkPlaceholderVisibility(dirs)
+        setupAdapter(dirs)
     }
 
     private fun handleMediaPermissions(callback: (() -> Unit)? = null) {
@@ -634,7 +666,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
 
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
-            gotDirectories(addTempFolderIfNeeded(it))
+            PerfTrace.mark("cached_dirs_loaded", "count=${it.size}")
+            gotDirectories(addTempFolderIfNeeded(it), isFullLoad = true)
         }
     }
 
@@ -1094,7 +1127,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun gotDirectories(newDirs: ArrayList<Directory>) {
+    /**
+     * [isFullLoad]: newDirs is every cached folder (getDirectories), not the currently displayed subset that sorting,
+     * pinning or creating a folder pass in; only then may the launch snapshot be written early and discovery be skipped.
+     */
+    private fun gotDirectories(newDirs: ArrayList<Directory>, isFullLoad: Boolean = false) {
         mIsGettingDirs = false
         mShouldStopFetching = false
 
@@ -1121,6 +1158,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             setupAdapter(dirs.clone() as ArrayList<Directory>)
         }
 
+        // FastGallery: keep the launch snapshot current even if the user leaves before the (long) rescan below ends
+        if (isFullLoad && !PerfTrace.legacy && !mIsThirdPartyIntent && dirs.isNotEmpty()) {
+            DirSnapshot.save(applicationContext, dirs)
+        }
+
         // cached folders have been loaded, recheck folders one by one starting with the first displayed
         mLastMediaFetcher?.shouldStop = true
         mLastMediaFetcher = MediaFetcher(applicationContext)
@@ -1132,12 +1174,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val hiddenString = getString(R.string.hidden)
         val albumCovers = config.parseAlbumCovers()
         val includedFolders = config.includedFolders
-        val noMediaFolders = getNoMediaFoldersSync()
+        val noMediaFolders = recentNoMediaFolders() ?: getNoMediaFoldersSync()
         val tempFolderPath = config.tempFolderPath
         val getProperFileSize = config.directorySorting and SORT_BY_SIZE != 0
         val dirPathsToRemove = ArrayList<String>()
-        val lastModifieds = mLastMediaFetcher!!.getLastModifieds()
-        val dateTakens = mLastMediaFetcher!!.getDateTakens()
+        PerfTrace.mark("scan_start")
+        // FastGallery: the global maps are built lazily, only if some folder needs a full walk (legacy: always, up front)
+        val lazyMaps = LazyScanMaps(mLastMediaFetcher!!)
+        val lastModifieds = if (PerfTrace.legacy) mLastMediaFetcher!!.getLastModifieds() else HashMap()
+        val dateTakens = if (PerfTrace.legacy) {
+            mLastMediaFetcher!!.getDateTakens()
+        } else if (isRPlus() && !isExternalStorageManager()) {
+            lazyMaps.dateTakens
+        } else {
+            HashMap()
+        }
+        val scanLazyMaps = if (PerfTrace.legacy) null else lazyMaps
+        PerfTrace.mark("scan_lastmod_datetaken", "lm=${lastModifieds.size} dt=${dateTakens.size}")
 
         if (
             config.showRecycleBinAtFolders
@@ -1179,8 +1232,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             getProperDateTaken = true,
             dateTakens = dateTakens
         )
+        PerfTrace.mark("scan_android11_files", "folders=${android11Files?.size}")
         try {
             for (directory in dirs) {
+                val dirStart = PerfTrace.sinceStart()
                 if (mShouldStopFetching || isDestroyed || isFinishing) {
                     return
                 }
@@ -1199,6 +1254,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
                 val curMedia = mLastMediaFetcher!!.getFilesFrom(
+                    lazyMaps = scanLazyMaps,
                     curPath = directory.path,
                     isPickImage = getImagesOnly,
                     isPickVideo = getVideosOnly,
@@ -1229,6 +1285,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     )
                 }
 
+                PerfTrace.mark("dir_refreshed", "took=${PerfTrace.sinceStart() - dirStart} n=${curMedia.size} album=${directory.name}")
                 // we are looping through the already displayed folders looking for changes, do not do anything if nothing changed
                 if (directory.copy(subfoldersCount = 0, subfoldersMediaCount = 0) == newDir) {
                     continue
@@ -1258,6 +1315,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     }.start()
                 }
 
+                PerfTrace.mark("dir_updated", "took=${PerfTrace.sinceStart() - dirStart} album=${directory.name}")
                 if (!directory.isRecycleBin()) {
                     getCachedMedia(directory.path, getVideosOnly, getImagesOnly) {
                         val mediaToDelete = ArrayList<Medium>()
@@ -1286,7 +1344,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         } catch (ignored: Exception) {
         }
 
-        val foldersToScan = mLastMediaFetcher!!.getFoldersToScan()
+        // FastGallery: walking all of MediaStore to discover brand-new folders took ~7 s per launch; when MediaStore's
+        // generation (bumped by any file added/changed/removed) and the visibility settings are unchanged since the
+        // last complete discovery, no new folder can exist, so only Favorites / Recycle bin are checked below.
+        val discoveryKey = if (PerfTrace.legacy || !isFullLoad) null else DiscoveryGate.currentKey(applicationContext)
+        val skipDiscovery = discoveryKey != null && !ScanCache.forceNextScan && DiscoveryGate.isUnchanged(applicationContext, discoveryKey)
+        PerfTrace.mark("discovery", if (skipDiscovery) "skipped" else "full")
+        val foldersToScan = if (skipDiscovery) ArrayList() else mLastMediaFetcher!!.getFoldersToScan()
         foldersToScan.remove(FAVORITES)
         foldersToScan.add(0, FAVORITES)
         if (config.showRecycleBinAtFolders) {
@@ -1304,11 +1368,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             foldersToScan.remove(it.path)
         }
 
+        PerfTrace.mark("scan_known_done", "remaining=${foldersToScan.size}")
         // check the remaining folders which were not cached at all yet
         for (folder in foldersToScan) {
             if (mShouldStopFetching || isDestroyed || isFinishing) {
                 return
             }
+            val folderStart = PerfTrace.sinceStart()
 
             val sorting = config.getFolderSorting(folder)
             val grouping = config.getFolderGrouping(folder)
@@ -1323,6 +1389,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
             val newMedia = mLastMediaFetcher!!.getFilesFrom(
+                lazyMaps = scanLazyMaps,
                 curPath = folder,
                 isPickImage = getImagesOnly,
                 isPickVideo = getVideosOnly,
@@ -1336,6 +1403,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 android11Files = android11Files
             )
 
+            PerfTrace.slow("scan_new", folderStart, "$folder n=${newMedia.size}")
             if (newMedia.isEmpty()) {
                 continue
             }
@@ -1373,7 +1441,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }.start()
         }
 
+        if (discoveryKey != null && !mShouldStopFetching) {
+            DiscoveryGate.save(applicationContext, discoveryKey)
+        }
         ScanCache.forceNextScan = false   // fast fork: a pull-to-refresh forces exactly one full pass
+        PerfTrace.mark("scan_done", "dirs=${dirs.size}")
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
@@ -1410,6 +1482,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         mDirs = dirs.clone() as ArrayList<Directory>
+        if (!PerfTrace.legacy && !mIsThirdPartyIntent) {
+            DirSnapshot.save(applicationContext, dirs)
+        }
     }
 
     private fun setAsDefaultFolder() {
@@ -1536,10 +1611,37 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
+        if (!PerfTrace.gridDrawn && dirsToShow.isNotEmpty()) {
+            watchFirstGridDraw()
+        }
+
         // recyclerview sometimes becomes empty at init/update, triggering an invisible refresh like this seems to work fine
         binding.directoriesGrid.postDelayed({
             binding.directoriesGrid.scrollBy(0, 0)
         }, 500)
+    }
+
+    private var mGridDrawWatched = false
+
+    // FGPerf: the first frame that actually shows album tiles = "albums displayed" (also reportFullyDrawn)
+    private fun watchFirstGridDraw() = runOnUiThread {
+        if (mGridDrawWatched) return@runOnUiThread
+        mGridDrawWatched = true
+        val grid = binding.directoriesGrid
+        grid.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (grid.childCount > 0 && (grid.adapter?.itemCount ?: 0) > 0) {
+                    grid.viewTreeObserver.removeOnPreDrawListener(this)
+                    if (PerfTrace.markGridDrawn("visible=${grid.childCount} items=${grid.adapter?.itemCount}")) {
+                        try {
+                            reportFullyDrawn()
+                        } catch (ignored: Exception) {
+                        }
+                    }
+                }
+                return true
+            }
+        })
     }
 
     private fun setupScrollDirection() {

@@ -29,7 +29,8 @@ class MediaFetcher(val context: Context) {
     fun getFilesFrom(
         curPath: String, isPickImage: Boolean, isPickVideo: Boolean, getProperDateTaken: Boolean, getProperLastModified: Boolean,
         getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean,
-        lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?
+        lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?,
+        lazyMaps: LazyScanMaps? = null
     ): ArrayList<Medium> {
         val filterMedia = context.config.filterMedia
         if (filterMedia == 0) {
@@ -66,7 +67,15 @@ class MediaFetcher(val context: Context) {
             if (cacheable && dirMtime > 0L) {
                 val stored = ScanCache.get(context, curPath)
                 if (stored != null) {
-                    val cached = context.mediaDB.getMediaFromPath(curPath)
+                    // FastGallery: hidden rows (e.g. Google Photos' ".trashed-*" files) are skipped by the scan but were never
+                    // purged from the DB, so the Camera/Screenshots row counts never matched and the cache always missed.
+                    // Compare and serve only the rows a scan would produce.
+                    val cachedAll = context.mediaDB.getMediaFromPath(curPath)
+                    val cached = if (PerfTrace.legacy || context.config.shouldShowHidden) {
+                        cachedAll
+                    } else {
+                        cachedAll.filter { !it.name.startsWith('.') }
+                    }
                     if (ScanCache.matches(stored, dirMtime, cached.size, scanExtra)) {
                         ScanCache.servedFromCache.add(curPath)
                         curMedia.addAll(when {
@@ -77,13 +86,63 @@ class MediaFetcher(val context: Context) {
                         sortMedia(curMedia, context.config.getFolderSorting(curPath))
                         return curMedia
                     }
+
+                    // FastGallery: the folder changed (new photo/screenshot, delete, rename) but the DB still holds exactly what
+                    // the last scan found, so only the difference is examined instead of re-stat'ing every file (Camera
+                    // 17.8k files took ~10 s per launch, Screenshots 20k ~6-13 s, after every new photo/screenshot).
+                    if (!isPicker && !PerfTrace.legacy && ScanCache.matchesExceptMtime(stored, cached.size, scanExtra)) {
+                        val updated = rescanChangedFolder(
+                            curPath, cached, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
+                            favoritePaths, getVideoDurations
+                        )
+                        if (updated != null) {
+                            ScanCache.servedFromCache.remove(curPath)
+                            if (!shouldStop) {
+                                ScanCache.put(context, curPath, dirMtime, updated.size, scanExtra)
+                            }
+                            curMedia.addAll(updated)
+                            sortMedia(curMedia, context.config.getFolderSorting(curPath))
+                            return curMedia
+                        }
+                    }
                 }
             }
 
             if (curMedia.isEmpty()) {
+                // FastGallery: Favorites (a handful of files) gets its dates from a query for just those paths, instead of
+                // forcing the 50k-row global maps to be built (3.5 s, and it is the first folder the rescan visits)
+                var lazy = lazyMaps
+                if (lazy != null && curPath == FAVORITES && favoritePaths.size <= 2000 && (getProperLastModified || getProperDateTaken)) {
+                    val lm = HashMap<String, Long>()
+                    val dt = HashMap<String, Long>()
+                    queryDatesForPaths(favoritePaths, lm, dt)
+                    try {
+                        val favSet = favoritePaths.toHashSet()
+                        context.dateTakensDB.getAllDateTakens().forEach { if (it.fullPath in favSet) dt[it.fullPath] = it.taken }
+                    } catch (ignored: Exception) {
+                    }
+                    lastModifieds.putAll(lm)
+                    dateTakens.putAll(dt)
+                    lazy = null
+                }
+                if (curPath == RECYCLE_BIN) {
+                    lazy = null   // recycle-bin rows come from the DB as they are; the date maps are never read for them
+                }
+                val lazyMaps = lazy
+                // FastGallery: getMediaInFolder only reads these maps now, so no per-folder copy of the 50k-entry maps
                 val newMedia = getMediaInFolder(
                     curPath, isPickImage, isPickVideo, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds.clone() as HashMap<String, Long>, dateTakens.clone() as HashMap<String, Long>
+                    favoritePaths, getVideoDurations,
+                    when {
+                        PerfTrace.legacy -> lastModifieds.clone() as HashMap<String, Long>
+                        lazyMaps != null && getProperLastModified -> lazyMaps.lastModifieds
+                        else -> lastModifieds
+                    },
+                    when {
+                        PerfTrace.legacy -> dateTakens.clone() as HashMap<String, Long>
+                        lazyMaps != null && getProperDateTaken -> lazyMaps.dateTakens
+                        else -> dateTakens
+                    }
                 )
 
                 if (curPath == FAVORITES && isRPlus() && !isExternalStorageManager()) {
@@ -102,6 +161,15 @@ class MediaFetcher(val context: Context) {
                 curMedia.addAll(newMedia)
                 ScanCache.servedFromCache.remove(curPath)
                 if (cacheable && dirMtime > 0L && !shouldStop && !isPicker) {
+                    if (!PerfTrace.legacy) {
+                        purgeStaleRows(curPath, newMedia)
+                        // MainActivity only writes a folder's rows when its album tile changed, so a folder whose rows were
+                        // missing from the DB (Pictures/Twitter: 0 of 689) was fully rescanned on every launch; store them here
+                        try {
+                            context.mediaDB.insertAll(newMedia)
+                        } catch (ignored: Exception) {
+                        }
+                    }
                     ScanCache.put(context, curPath, dirMtime, newMedia.size, scanExtra)
                 }
             }
@@ -317,7 +385,8 @@ class MediaFetcher(val context: Context) {
     private fun getMediaInFolder(
         folder: String, isPickImage: Boolean, isPickVideo: Boolean, filterMedia: Int, getProperDateTaken: Boolean,
         getProperLastModified: Boolean, getProperFileSize: Boolean, favoritePaths: ArrayList<String>,
-        getVideoDurations: Boolean, lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>
+        getVideoDurations: Boolean, lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>,
+        onlyFiles: List<File>? = null
     ): ArrayList<Medium> {
         val media = ArrayList<Medium>()
         val isRecycleBin = folder == RECYCLE_BIN
@@ -332,12 +401,16 @@ class MediaFetcher(val context: Context) {
         val checkFileExistence = config.fileLoadingPriority == PRIORITY_VALIDITY
         val showHidden = config.shouldShowHidden
         val showPortraits = filterMedia and TYPE_PORTRAITS != 0
-        val fileSizes = if (checkProperFileSize || checkFileExistence) getFolderSizes(folder) else HashMap()
+        // FastGallery: an incremental rescan (onlyFiles) looks at a few new files; don't query sizes for the whole folder
+        val fileSizes = if (onlyFiles == null && (checkProperFileSize || checkFileExistence)) getFolderSizes(folder) else HashMap()
 
-        val files = when (folder) {
+        val files = when {
+            onlyFiles != null -> ArrayList(onlyFiles)
+            else -> when (folder) {
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
             else -> File(folder).listFiles()?.toMutableList() ?: return media
+            }
         }
 
         for (curFile in files) {
@@ -412,7 +485,7 @@ class MediaFetcher(val context: Context) {
                 }
             } else {
                 var lastModified: Long
-                var newLastModified = lastModifieds.remove(path)
+                var newLastModified = lastModifieds[path]
                 if (newLastModified == null) {
                     newLastModified = if (getProperLastModified) {
                         file.lastModified()
@@ -426,7 +499,7 @@ class MediaFetcher(val context: Context) {
                 val videoDuration = if (getVideoDurations && isVideo) context.getDuration(path) ?: 0 else 0
 
                 if (getProperDateTaken) {
-                    var newDateTaken = dateTakens.remove(path)
+                    var newDateTaken = dateTakens[path]
                     if (newDateTaken == null) {
                         newDateTaken = if (getProperLastModified) {
                             lastModified
@@ -636,6 +709,99 @@ class MediaFetcher(val context: Context) {
         }
 
         return media
+    }
+
+    /**
+     * FastGallery incremental rescan of a folder whose mtime changed: keep the cached rows whose files are still listed,
+     * drop the rest, and build rows only for the new names. Returns null (caller does a full scan) when the folder cannot
+     * be listed or too many files are new.
+     */
+    private fun rescanChangedFolder(
+        folder: String, cached: List<Medium>, filterMedia: Int, getProperDateTaken: Boolean, getProperLastModified: Boolean,
+        getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean
+    ): ArrayList<Medium>? {
+        if (context.config.fileLoadingPriority == PRIORITY_VALIDITY) return null
+        val names = File(folder).list() ?: return null
+        val present = HashSet<String>(names.size * 2)
+        names.forEach { present.add(it) }
+        val cachedNames = HashSet<String>(cached.size * 2)
+        val result = ArrayList<Medium>(names.size)
+        for (medium in cached) {
+            cachedNames.add(medium.name)
+            if (medium.name in present) {
+                result.add(medium)
+            }
+        }
+
+        val keptCount = result.size
+        val showHidden = context.config.shouldShowHidden
+        val newFiles = names.filter { it !in cachedNames && (showHidden || !it.startsWith('.')) }.map { File(folder, it) }
+        // (MediumDao.deleteMedia deletes by id, which these rows don't carry, so it is a no-op; delete by path)
+        cached.filter { it.name !in present }.forEach {
+            try {
+                context.mediaDB.deleteMediumPath(it.path)
+            } catch (ignored: Exception) {
+            }
+        }
+        if (newFiles.size > 2000) return null
+        if (newFiles.isNotEmpty()) {
+            val lastModifieds = HashMap<String, Long>()
+            val dateTakens = HashMap<String, Long>()
+            if (getProperLastModified || getProperDateTaken) {
+                queryDatesForPaths(newFiles.map { it.absolutePath }, lastModifieds, dateTakens)
+                try {
+                    context.dateTakensDB.getDateTakensFromPath(folder).forEach { dateTakens[it.fullPath] = it.taken }
+                } catch (ignored: Exception) {
+                }
+            }
+
+            val added = getMediaInFolder(
+                folder, false, false, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
+                favoritePaths, getVideoDurations, lastModifieds, dateTakens, onlyFiles = newFiles
+            )
+            result.addAll(added)
+            try {
+                context.mediaDB.insertAll(added)
+            } catch (ignored: Exception) {
+            }
+        }
+        PerfTrace.mark("incremental_rescan", "kept=$keptCount of ${cached.size} new=${newFiles.size} added=${result.size - keptCount} $folder")
+        return result
+    }
+
+    /** MediaStore DATE_MODIFIED / DATE_TAKEN for just these paths (plus the app's own fixed date-takens) */
+    private fun queryDatesForPaths(paths: List<String>, lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>) {
+        val uri = Files.getContentUri("external")
+        val projection = arrayOf(Images.Media.DATA, Images.Media.DATE_MODIFIED, Images.Media.DATE_TAKEN)
+        paths.chunked(500).forEach { chunk ->
+            val selection = "${Images.Media.DATA} IN (${chunk.joinToString(",") { "?" }})"
+            try {
+                context.queryCursor(uri, projection, selection, chunk.toTypedArray()) { cursor ->
+                    val path = cursor.getStringValue(Images.Media.DATA)
+                    val modified = cursor.getLongValue(Images.Media.DATE_MODIFIED) * 1000
+                    if (modified != 0L) lastModifieds[path] = modified
+                    val taken = cursor.getLongValue(Images.Media.DATE_TAKEN)
+                    if (taken != 0L) dateTakens[path] = taken
+                }
+            } catch (ignored: Exception) {
+            }
+        }
+    }
+
+    /**
+     * FastGallery: after a full walk, drop the folder's DB rows the walk did not find. Upstream's cleanup deletes by id
+     * (rows read back from the DB have none), so stale rows piled up and the scan cache's row count never matched again.
+     */
+    private fun purgeStaleRows(folder: String, scanned: List<Medium>) {
+        try {
+            val showHidden = context.config.shouldShowHidden
+            val found = HashSet<String>(scanned.size * 2)
+            scanned.forEach { found.add(it.path) }
+            context.mediaDB.getMediaFromPath(folder)
+                .filter { (showHidden || !it.name.startsWith('.')) && it.path !in found }
+                .forEach { context.mediaDB.deleteMediumPath(it.path) }
+        } catch (ignored: Exception) {
+        }
     }
 
     fun getFolderDateTakens(folder: String): HashMap<String, Long> {

@@ -13,6 +13,7 @@ import android.graphics.drawable.PictureDrawable
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Process
+import android.os.SystemClock
 import android.provider.MediaStore.Files
 import android.provider.MediaStore.Images
 import android.widget.ImageView
@@ -80,6 +81,7 @@ import org.fossify.commons.views.MySquareImageView
 import org.fossify.gallery.R
 import org.fossify.gallery.asynctasks.GetMediaAsynctask
 import org.fossify.gallery.databases.GalleryDatabase
+import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.helpers.GROUP_BY_DATE_TAKEN_DAILY
 import org.fossify.gallery.helpers.GROUP_BY_DATE_TAKEN_MONTHLY
@@ -493,6 +495,16 @@ fun Context.getNoMediaFolders(callback: (folders: ArrayList<String>) -> Unit) {
     }
 }
 
+// FastGallery: getCachedDirectories() and the rescan that follows it both ran this full MediaStore query (~0.4-1 s each)
+// within a second of each other on every launch; the rescan now reuses the first answer when it is a few seconds old.
+@Volatile
+private var lastNoMediaFolders: Pair<Long, ArrayList<String>>? = null
+
+fun recentNoMediaFolders(maxAgeMs: Long = 10_000): ArrayList<String>? {
+    val last = lastNoMediaFolders ?: return null
+    return if (SystemClock.elapsedRealtime() - last.first <= maxAgeMs) ArrayList(last.second) else null
+}
+
 fun Context.getNoMediaFoldersSync(): ArrayList<String> {
     val folders = ArrayList<String>()
 
@@ -610,7 +622,8 @@ fun Context.loadImage(
     roundCorners: Int,
     signature: ObjectKey,
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
-    onError: (() -> Unit)? = null
+    onError: (() -> Unit)? = null,
+    onReady: ((source: String) -> Unit)? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -631,7 +644,8 @@ fun Context.loadImage(
             skipMemoryCacheAtPaths = skipMemoryCacheAtPaths,
             animate = animateGifs,
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
-            onError = onError
+            onError = onError,
+            onReady = onReady
         )
     }
 }
@@ -680,7 +694,8 @@ fun Context.loadImageBase(
     animate: Boolean = false,
     tryLoadingWithPicasso: Boolean = false,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
-    onError: (() -> Unit)? = null
+    onError: (() -> Unit)? = null,
+    onReady: ((source: String) -> Unit)? = null
 ) {
     val options = RequestOptions()
         .signature(signature)
@@ -754,7 +769,10 @@ fun Context.loadImageBase(
             targetBitmap: Target<Drawable>,
             dataSource: DataSource,
             isFirstResource: Boolean,
-        ) = false
+        ): Boolean {
+            onReady?.invoke(dataSource.name)
+            return false
+        }
     })
 
     builder.into(target)
@@ -847,6 +865,7 @@ fun Context.getCachedDirectories(
         } catch (e: Exception) {
             ArrayList()
         }
+        PerfTrace.mark("db_dirs_read", "count=${directories.size}")
 
         if (!config.showRecycleBinAtFolders) {
             directories.removeAll { it.isRecycleBin() }
@@ -863,6 +882,10 @@ fun Context.getCachedDirectories(
 
         val folderNoMediaStatuses = HashMap<String, Boolean>()
         val noMediaFolders = getNoMediaFoldersSync()
+        if (!PerfTrace.legacy) {
+            lastNoMediaFolders = SystemClock.elapsedRealtime() to ArrayList(noMediaFolders)
+        }
+        PerfTrace.mark("nomedia_scanned", "count=${noMediaFolders.size}")
         noMediaFolders.forEach { folder ->
             folderNoMediaStatuses["$folder/$NOMEDIA"] = true
         }
