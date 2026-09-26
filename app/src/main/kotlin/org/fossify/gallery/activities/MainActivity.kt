@@ -124,6 +124,7 @@ import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.ScanCache
 import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.helpers.DirSnapshot
+import org.fossify.gallery.helpers.CoverSnapshot
 import org.fossify.gallery.helpers.LazyScanMaps
 import org.fossify.gallery.helpers.DiscoveryGate
 import org.fossify.gallery.helpers.DIRECTORY
@@ -214,6 +215,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         PerfTrace.mark("main_onCreate")
         if (savedInstanceState == null && intent?.action == Intent.ACTION_MAIN) {
+            // fast9: decode the saved first screen of album covers in the background, ready for the grid's first bind
+            if (!PerfTrace.legacy) CoverSnapshot.start(applicationContext)
             applySplashDuties()
         }
         super.onCreate(savedInstanceState)
@@ -1200,6 +1203,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // FastGallery: keep the launch snapshot current even if the user leaves before the (long) rescan below ends
         if (isFullLoad && !PerfTrace.legacy && !mIsThirdPartyIntent && dirs.isNotEmpty()) {
             DirSnapshot.save(applicationContext, dirs)
+            CoverSnapshot.save(applicationContext, dirs)
         }
 
         // cached folders have been loaded, recheck folders one by one starting with the first displayed
@@ -1523,6 +1527,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mDirs = dirs.clone() as ArrayList<Directory>
         if (!PerfTrace.legacy && !mIsThirdPartyIntent) {
             DirSnapshot.save(applicationContext, dirs)
+            CoverSnapshot.save(applicationContext, dirs)
         }
     }
 

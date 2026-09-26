@@ -11,7 +11,10 @@ import com.bumptech.glide.request.transition.TransitionFactory
 fun getOptionalCrossFadeTransition(duration: Int): DrawableTransitionOptions {
     return DrawableTransitionOptions.with(
         TransitionFactory { dataSource, isFirstResource ->
-            if (dataSource == DataSource.RESOURCE_DISK_CACHE) return@TransitionFactory null
+            // FastGallery (fast9): nothing from a cache fades in, only freshly decoded files get the (shorter) fade
+            if (dataSource == DataSource.MEMORY_CACHE || dataSource == DataSource.RESOURCE_DISK_CACHE || dataSource == DataSource.DATA_DISK_CACHE) {
+                return@TransitionFactory null
+            }
             DrawableCrossFadeFactory.Builder(duration).build().build(dataSource, isFirstResource)
         }
     )

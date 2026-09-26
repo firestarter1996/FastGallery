@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-# Usage: launch_frames_record.py <outdir> <label> <runs>; then (in <outdir>) launch_frames_analyze.py <label>
+# Usage: launch_frames_record.py <outdir> <label> <runs> [<album path> [warm]]; then (in <outdir>) launch_frames_analyze.py <label>
 """scrcpy virtual display + recorder: N cold launches of FastGallery on the virtual display with Settings behind;
 saves raw h264 + per-frame device pts + host marks."""
 import socket, struct, subprocess, sys, time, json, threading
 S = "10.13.13.4:5555"; SCID = "5e6f7a8b"; PORT = 27201
 out = sys.argv[1]; label = sys.argv[2]; runs = int(sys.argv[3])
+ALBUM = sys.argv[4] if len(sys.argv) > 4 else None  # launch straight into this album (MediaActivity, via su)
+WARM = len(sys.argv) > 5 and sys.argv[5] == "warm"  # album opened from the running album grid, like a tap
 PKG = "org.fossify.gallery"; LAUNCH = f"{PKG}/.activities.SplashActivity.Green"
 def sh(c, t=60): return subprocess.run(["adb", "-s", S, "shell", c], capture_output=True, text=True, timeout=t).stdout
 subprocess.run(["adb", "-s", S, "push", "/mnt/c/Users/jonal/Downloads/Downloads/Project Files/Software/Android/Android Programs/scrcpy-win64-v3.2/scrcpy-server", "/data/local/tmp/scrcpy-server.jar"], capture_output=True)
@@ -42,9 +44,15 @@ for i in range(runs):
     sh(f"am force-stop {PKG}")
     sh(f"am start --display {disp} -a android.settings.SETTINGS")
     time.sleep(3)
+    if WARM:
+        sh(f"am start -W --display {disp} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {LAUNCH}")
+        time.sleep(4)
     sh("logcat -c")
     t = time.monotonic() * 1000
-    am = sh(f"am start -W --display {disp} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {LAUNCH}")
+    if ALBUM:
+        am = sh(f"su -c 'am start -W --display {disp} -n {PKG}/.activities.MediaActivity --es directory \"{ALBUM}\"'")
+    else:
+        am = sh(f"am start -W --display {disp} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {LAUNCH}")
     time.sleep(4)
     log = sh("logcat -d -s FGPerf:I ActivityTaskManager:I | grep -E 'grid_drawn|Displayed'")
     tot = [l.strip() for l in am.splitlines() if "Time" in l]

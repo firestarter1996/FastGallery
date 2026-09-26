@@ -626,7 +626,8 @@ fun Context.loadImage(
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
     onError: (() -> Unit)? = null,
     onReady: ((source: String) -> Unit)? = null,
-    sizeKind: String? = null
+    sizeKind: String? = null,
+    placeholder: Drawable? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -649,7 +650,8 @@ fun Context.loadImage(
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
             onError = onError,
             onReady = onReady,
-            sizeKind = sizeKind
+            sizeKind = sizeKind,
+            placeholder = placeholder
         )
     }
 }
@@ -700,7 +702,8 @@ fun Context.loadImageBase(
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     onError: (() -> Unit)? = null,
     onReady: ((source: String) -> Unit)? = null,
-    sizeKind: String? = null
+    sizeKind: String? = null,
+    placeholder: Drawable? = null
 ) {
     if (sizeKind != null) {
         ThumbSizes.record(this, sizeKind, target, cropThumbnails, roundCorners, animate)
@@ -714,6 +717,10 @@ fun Context.loadImageBase(
         skipMemoryCache = skipMemoryCacheAtPaths?.contains(path) == true,
         animate = animate
     ).transition(getOptionalCrossFadeTransition(crossFadeDuration))
+
+    if (placeholder != null) {
+        builder = builder.placeholder(placeholder)
+    }
 
     builder = builder.listener(object : RequestListener<Drawable> {
         override fun onLoadFailed(

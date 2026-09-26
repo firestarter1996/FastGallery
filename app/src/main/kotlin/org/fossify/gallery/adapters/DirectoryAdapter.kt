@@ -82,6 +82,7 @@ import org.fossify.gallery.extensions.fixDateTaken
 import org.fossify.gallery.extensions.getShortcutImage
 import org.fossify.gallery.extensions.isThisOrParentFolderHidden
 import org.fossify.gallery.extensions.loadImage
+import org.fossify.gallery.helpers.CoverSnapshot
 import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.removeNoMedia
@@ -907,7 +908,9 @@ class DirectoryAdapter(
                         dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
                     },
                     sizeKind = "folder",
+                    placeholder = CoverSnapshot.placeholder(activity, directory.tmb, directory.getKey()),
                     onReady = { source ->
+                        CoverSnapshot.release(directory.tmb, directory.getKey())
                         PerfTrace.onThumbReady(directory.name, directory.tmb, holder.bindingAdapterPosition, source, dirThumbnail)
                     }
                 )
