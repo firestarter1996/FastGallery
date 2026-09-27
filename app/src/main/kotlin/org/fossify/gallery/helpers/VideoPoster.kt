@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.provider.MediaStore
 import androidx.annotation.OptIn
 import androidx.media3.common.MimeTypes
@@ -13,7 +14,9 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import com.bumptech.glide.request.target.CustomTarget
 import com.bumptech.glide.request.transition.Transition
 import com.bumptech.glide.signature.ObjectKey
+import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.helpers.ensureBackgroundThread
+import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.buildThumbnailRequest
 import org.fossify.gallery.models.Medium
 import java.io.File
@@ -37,23 +40,40 @@ object VideoPoster {
     }
 
     /** calls [onReady] on the main thread with the poster, or never (no cached thumbnail, unknown size, switched off) */
-    fun load(activity: Activity, intent: Intent, onReady: (Drawable) -> Unit) {
-        val path = intent.getStringExtra(EXTRA_PATH) ?: return
-        val sig = intent.getStringExtra(EXTRA_SIG) ?: return
-        val parent = intent.getStringExtra(EXTRA_PARENT) ?: return
+    fun load(activity: Activity, intent: Intent, uri: Uri, onReady: (Drawable) -> Unit) {
         val started = PerfTrace.sinceStart()
         ensureBackgroundThread {
             if (File(activity.filesDir, "perf_no_video_poster").exists()) return@ensureBackgroundThread
-            val spec = ThumbSizes.get(activity, "media:$parent") ?: ThumbSizes.get(activity, "media") ?: return@ensureBackgroundThread
+            var path = intent.getStringExtra(EXTRA_PATH)
+            var sig = intent.getStringExtra(EXTRA_SIG)
+            var parent = intent.getStringExtra(EXTRA_PARENT)
+            if (path == null || sig == null || parent == null) {
+                // opened through a VIEW intent (system player setting / "Open with" / other apps): find the grid's row
+                val p = (if (uri.scheme == "file") uri.path else try {
+                    activity.getRealPathFromURI(uri)
+                } catch (e: Exception) {
+                    null
+                }) ?: return@ensureBackgroundThread
+                val medium = try {
+                    activity.mediaDB.getMediumByPath(p)
+                } catch (e: Exception) {
+                    null
+                } ?: return@ensureBackgroundThread
+                path = medium.path; sig = medium.getSignature(); parent = medium.parentPath
+            }
+            val vPath: String = path ?: return@ensureBackgroundThread
+            val vSig: String = sig ?: return@ensureBackgroundThread
+            val vParent: String = parent ?: return@ensureBackgroundThread
+            val spec = ThumbSizes.get(activity, "media:$vParent") ?: ThumbSizes.get(activity, "media") ?: return@ensureBackgroundThread
             if (spec.round != ROUNDED_CORNERS_NONE) return@ensureBackgroundThread
-            val (w, h) = displayedSize(activity, path) ?: return@ensureBackgroundThread
+            val (w, h) = displayedSize(activity, vPath) ?: return@ensureBackgroundThread
             activity.runOnUiThread {
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                 activity.buildThumbnailRequest(
-                    path = path,
+                    path = vPath,
                     cropThumbnails = spec.crop,
                     roundCorners = spec.round,
-                    signature = ObjectKey(sig),
+                    signature = ObjectKey(vSig),
                     animate = spec.animate
                 ).onlyRetrieveFromCache(true)
                     .into(object : CustomTarget<Drawable>(spec.width, spec.height) {
