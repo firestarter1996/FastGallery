@@ -1,6 +1,9 @@
 package org.fossify.gallery.activities
 
 import android.database.ContentObserver
+import android.graphics.PixelFormat
+import android.os.Build
+import android.os.Bundle
 import android.net.Uri
 import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
@@ -27,6 +30,26 @@ open class SimpleActivity : BaseSimpleActivity() {
             if (uri != null && org.fossify.gallery.App.startedActivities > 0) {
                 org.fossify.gallery.helpers.MediaChangeBatcher.post(applicationContext, uri)
             }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // fast11: every screen other apps can open (VIEW photo/video, REVIEW, EDIT/CROP, ATTACH_DATA/SET_WALLPAPER, plus
+        // PICK/GET_CONTENT and the launcher on MainActivity) uses a theme that is translucent on Android 12+ only so
+        // Android creates no launch splash for it; become a normal opaque window before the first frame.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && themeIsTranslucent()) {
+            setTranslucent(false)
+            window.setFormat(PixelFormat.OPAQUE)
+        }
+    }
+
+    private fun themeIsTranslucent(): Boolean {
+        val a = theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowIsTranslucent))
+        return try {
+            a.getBoolean(0, false)
+        } finally {
+            a.recycle()
         }
     }
 

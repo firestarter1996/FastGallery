@@ -17,4 +17,10 @@
         <item name="android:windowIsTranslucent">true</item>
     </style>
 
+    <!-- fast11: the same for the screens other apps open (VIEW photo/video, REVIEW, EDIT, ATTACH_DATA): LaunchTheme on
+         the AppTheme ones, this on ViewPagerActivity. SimpleActivity.onCreate makes the window opaque again. -->
+    <style name="ViewerLaunchTheme" parent="TranslucentTheme">
+        <item name="android:windowIsTranslucent">true</item>
+    </style>
+
 </resources>

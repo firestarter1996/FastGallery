@@ -107,7 +107,7 @@
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="true"
             android:parentActivityName=".activities.MediaActivity"
-            android:theme="@style/TranslucentTheme">
+            android:theme="@style/ViewerLaunchTheme">
 
             <intent-filter>
                 <action android:name="com.android.camera.action.REVIEW" />
@@ -194,7 +194,8 @@
         <activity
             android:name=".activities.PhotoActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/LaunchTheme">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -220,7 +221,8 @@
         <activity
             android:name=".activities.VideoActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/LaunchTheme">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -235,6 +237,7 @@
             android:name="org.fossify.gallery.activities.EditActivity"
             android:configChanges="orientation"
             android:exported="true"
+            android:theme="@style/LaunchTheme"
             android:label="@string/basic_editor">
 
             <intent-filter android:name="foss-editor">
@@ -263,6 +266,7 @@
             android:name=".activities.SetWallpaperActivity"
             android:configChanges="orientation"
             android:exported="true"
+            android:theme="@style/LaunchTheme"
             android:label="@string/wallpaper">
             <intent-filter>
                 <action android:name="android.intent.action.ATTACH_DATA" />
