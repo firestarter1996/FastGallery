@@ -257,7 +257,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     private fun initPlayer() {
         mUri = intent.data ?: return
-        org.fossify.gallery.helpers.VideoPoster.load(this, intent) { poster ->
+        org.fossify.gallery.helpers.VideoPoster.load(this, intent, mUri!!) { poster ->
             if (!mFirstFrameRendered) {
                 binding.videoPoster.setImageDrawable(poster)
                 binding.videoPoster.beVisible()
