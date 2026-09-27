@@ -220,6 +220,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             // fast9: decode the saved first screen of album covers in the background, ready for the grid's first bind
             if (!PerfTrace.legacy) CoverSnapshot.start(applicationContext)
             applySplashDuties()
+        } else if (savedInstanceState == null && (intent?.action == Intent.ACTION_PICK || intent?.action == Intent.ACTION_GET_CONTENT)) {
+            // fast11: the file-picker entry (other apps' "choose a photo") gets the same first-frame covers
+            if (!PerfTrace.legacy) CoverSnapshot.start(applicationContext)
         }
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -331,7 +334,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     // FastGallery: draw the albums from the last session in the first frame; getDirectories() refreshes them right after
     private fun showDirSnapshot() {
-        if (PerfTrace.legacy || mIsThirdPartyIntent || config.showAll || config.defaultFolder.isNotEmpty()) {
+        if (PerfTrace.legacy || config.showAll || config.defaultFolder.isNotEmpty()) {
             return
         }
 
@@ -339,7 +342,20 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             return
         }
 
-        val dirs = DirSnapshot.load(this) ?: return
+        var dirs = DirSnapshot.load(this) ?: return
+        if (mIsThirdPartyIntent) {
+            // fast11: file pickers show the same album rows filtered by type (as getCachedDirectories does), so the
+            // picker draws its albums in the first frame instead of ~150 ms of an empty black grid
+            val getImages = mIsPickImageIntent || mIsGetImageContentIntent
+            val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
+            if (getVideos && !getImages) {
+                // video-only pickers list different albums/covers after the scan (verified on the 6 Pro): no snapshot
+                return
+            } else if (getImages && !getVideos) {
+                dirs = dirs.filter { it.types and TYPE_IMAGES != 0 } as ArrayList<Directory>
+            }
+            if (dirs.isEmpty()) return
+        }
         PerfTrace.mark("snapshot_loaded", "count=${dirs.size}")
         if (config.groupDirectSubfolders) {
             mDirs = dirs.clone() as ArrayList<Directory>
