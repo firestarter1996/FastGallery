@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # Usage: cmp_analyze.py <outdir> [--md]
-"""Medians per build of cmp_suite.py runs. All times = ms since ActivityTaskManager START (logcat wall clock), from
+"""Medians per build of cmp_suite.py runs. All times = ms since the first ActivityTaskManager START log line of the launch
+(logcat wall clock; = the launch request, the splash window is added ~15 ms later and `Displayed +N` lands at ~N), from
 screenrecord --bugreport frames whose device time is read by OCR of the overlay (seconds.millis).
 
 Visual definitions (status bar + overlay rows excluded):
-  content   first frame at/after START (and after the splash window is gone) that differs from the screen before
-            START and is not blank (texture present) = albums / album grid / picker albums visible
+  content   first frame at/after START (and after the splash window is gone) whose area below the toolbar differs
+            from the screen before START and is not blank (texture present) = albums / thumbnails / picker albums
+            visible (an empty grid with only the search bar drawn does not count)
   settled   first frame after which the screen stays within a small distance of its look 2 s after `content`
   blank     time from the first blank-dark frame after START to `content` (black splash / empty black grid)
   photo     first = first frame whose centre square matches the photo shown before the swipe (placeholder counts);
@@ -30,11 +32,14 @@ def decode(mp4, vf, w, h):
 
 
 def ocr_ss(img):
-    from PIL import Image
-    b = (img > 200).astype(np.uint8) * 255
-    p = f"{d}/_ocr.png"; Image.fromarray(255 - b).resize((img.shape[1] * 3, img.shape[0] * 3), Image.NEAREST).save(p)
-    r = subprocess.run(["tesseract", p, "-", "--psm", "7", "-c", "tessedit_char_whitelist=0123456789:.f=()"], capture_output=True, text=True).stdout
-    m = re.search(r"(\d{2})\.(\d{3})\s*f", r) or re.search(r":(\d{2})\.(\d{3})", r)
+    """seconds.millis from one overlay crop; the thin status-bar clock underneath is stripped by a 3x3 opening
+    (overlay strokes are ~4 px at 720 px wide, status-bar strokes ~2 px)"""
+    from PIL import Image, ImageFilter
+    b = Image.fromarray((img > 160).astype(np.uint8) * 255).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    b = b.resize((img.shape[1] * 4, img.shape[0] * 4), Image.NEAREST)
+    p = f"{d}/_ocr.png"; Image.fromarray(255 - np.array(b)).save(p)
+    r = subprocess.run(["tesseract", p, "-", "--psm", "7", "-c", "tessedit_char_whitelist=0123456789:."], capture_output=True, text=True).stdout
+    m = re.search(r"\d{2}:\d{2}:(\d{2})\.?(\d{3})(?!\d)", r)
     return int(m.group(1)) + int(m.group(2)) / 1000 if m else None
 
 
@@ -45,17 +50,16 @@ def frames(mp4):
     pts, im = pts[1:n], im[1:n]            # frame 0 = bugreport info page
     key = os.path.basename(mp4)
     if key not in ocr_cache:
-        crop = decode(mp4, "crop=320:42:0:0", 320, 42)[1:n]
-        idx = sorted(set([0, len(pts) // 3, 2 * len(pts) // 3, len(pts) - 1]))
-        offs = []
-        for i in idx:
+        crop = decode(mp4, "crop=200:52:0:4", 200, 52)[1:n]
+        # every 2nd frame from the end (app screens read best); stop once 3 readings agree within 6 ms
+        offs = []; off = None
+        for i in range(len(pts) - 1, -1, -2):
             s = ocr_ss(crop[i])
-            if s is not None: offs.append((s - pts[i]) % 60)
-        off = None
-        if offs:
-            offs.sort()
-            best = max(offs, key=lambda o: sum(1 for x in offs if min(abs(x - o), 60 - abs(x - o)) < 0.006))
-            if sum(1 for x in offs if min(abs(x - best), 60 - abs(x - best)) < 0.006) >= 2: off = best
+            if s is None: continue
+            offs.append((s - pts[i]) % 60)
+            agree = lambda o: sum(1 for x in offs if min(abs(x - o), 60 - abs(x - o)) < 0.006)
+            best = max(offs, key=agree)
+            if agree(best) >= 4: off = best; break
         ocr_cache[key] = off
     return pts, im, ocr_cache[key]
 
@@ -70,53 +74,105 @@ def rel(ss, start):   # seconds-in-minute difference -> ms, wrapped to [-30 s, 3
 
 
 def start_ss(m, act=None):
-    L = [l for l in m.get("logs", []) if "START u0" in l and "org.fossify.gallery" in l and (act is None or act in l)]
-    return wall_ss(L[-1]) if L else None
+    L = [l for l in m.get("logs", []) if "ActivityTaskManager: START u0" in l and "org.fossify.gallery" in l and (act is None or act in l)]
+    return wall_ss(L[0]) if L else None     # first line: builds with a SplashActivity trampoline log a second START
 
 
 def splash(m, start):
-    L = [l for l in m.get("logs", []) if "Splash Screen org.fossify.gallery" in l]
-    if not L or start is None: return 0.0
+    L = [l for l in m.get("logs", []) if "Splash Screen org.fossify.gallery" in l and "adbd" not in l]
+    if not L or start is None: return 0.0, 0.0
     add = wall_ss(L[0]); rem = next((wall_ss(l) for l in L if "EXITING" in l), None)
-    return round(rel(rem, add), 1) if rem is not None else None
+    if rem is None: return None, None
+    return round(rel(rem, add), 1), round(rel(rem, start), 1)   # duration, removal time since START
 
 
 def fgperf(m, key, start, last=False):
-    v = [rel(wall_ss(l), start) for l in m.get("logs", []) if "FGPerf" in l and key in l]
+    v = [rel(wall_ss(l), start) for l in m.get("logs", []) if " FGPerf  :" in l and key in l]
     return (max(v) if last else min(v)) if v else None
+
+
+def displayed(m, start):
+    L = [l for l in m.get("logs", []) if "ActivityTaskManager: Displayed" in l]
+    return round(rel(wall_ss(L[-1]), start), 1) if (L and start is not None) else None
 
 
 def body(f): return f[TOP:]
 
 
+GRID_TOP = int(H * .24)       # below the toolbar/search bar (bar ends ~20% down on the 6 Pro): "content" must be in the album/thumbnail area
+
+
+GRID_BOT = int(H * .88)       # above the "Shell was granted Superuser rights" toast of root am start
+
+
+def grid(f): return f[GRID_TOP:GRID_BOT]
+
+
+LAT = []          # log-to-pixel latency (ms) of the first visible change, measured on OCR-timed recordings
+
+
+def times(m, start, collect=False):
+    """frame times in ms since START. Primary: OCR of the overlay clock (accepted only if the first visible change lands
+    within -20..250 ms of its log line). Fallback (no usable OCR): anchor the first visible change to the splash
+    window's add time, or to `Displayed` for splash-less builds, plus the median latency measured on OCR'd runs."""
+    pts, im, off = frames(f"{d}/{m['rec']}")
+    if start is None: return None, None, None
+    ch = next((i for i in range(1, len(im)) if np.abs(im[i] - im[0]).mean() > 6), None)
+    L = [l for l in m.get("logs", []) if "Splash Screen org.fossify.gallery" in l and "adbd" not in l]
+    anchor = rel(wall_ss(L[0]), start) if L else displayed(m, start)
+    if off is not None:
+        t = [rel((p + off) % 60, start) for p in pts]
+        lat = (t[ch] - anchor) if (ch is not None and anchor is not None) else None
+        # sanity: the recording starts ~1 s before START and runs on after it; the first visible change must follow
+        # its log line by a plausible screen latency (a consistent misread of one digit fails this)
+        if -4000 < t[0] < 0 < t[-1] and t[-1] > 500 and (lat is None or -20 <= lat <= 250):
+            if collect and lat is not None: LAT.append(lat)
+            return t, im, "ocr"
+        ocr_cache[os.path.basename(m['rec'])] = None
+    if ch is None or anchor is None: return None, None, None
+    lat = st.median(LAT) if LAT else 50.0
+    return [(p - pts[ch]) * 1000 + anchor + lat for p in pts], im, "anchor"
+
+
+ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity"}
+
+
+def calibrate():
+    for m in R:
+        if not m.get("rec"): continue
+        try: times(m, start_ss(m, ACT.get(m["scen"])), collect=True)
+        except Exception: pass
+    json.dump(ocr_cache, open(CACHE, "w"))
+    print("latency calibration: n", len(LAT), "median", round(st.median(LAT), 1) if LAT else None,
+          "p10/p90", (round(np.percentile(LAT, 10), 1), round(np.percentile(LAT, 90), 1)) if LAT else None, flush=True)
+
+
 def visual_grid(m, start, splash_ms):
-    t0 = []
-    try: pts, im, off = frames(f"{d}/{m['rec']}")
+    try: t, im, how = times(m, start)
     except Exception: return {}
-    if off is None or start is None: return {"err": "no_ocr"}
-    t = [rel((p + off) % 60, start) for p in pts]
+    if t is None: return {"err": "no_ocr"}
     pre = [i for i in range(len(t)) if t[i] < 0]
-    ref = body(im[pre[-1]]) if pre else body(im[0])
-    blank = lambda f: body(f).mean() < 15 or body(f).std() < 12
+    ref = grid(im[pre[-1]]) if pre else grid(im[0])
+    # blank = the splash / an empty grid with only the toolbar drawn (the original shows that for ~150 ms)
+    blank = lambda f: grid(f).mean() < 15 or grid(f).std() < 12
     splash_end = splash_ms if splash_ms else 0
-    cont = next((i for i in range(len(t)) if t[i] >= splash_end - 1 and np.abs(body(im[i]) - ref).mean() > 10 and not blank(im[i])), None)
-    out = {}
+    cont = next((i for i in range(len(t)) if t[i] >= splash_end - 1 and np.abs(grid(im[i]) - ref).mean() > 10 and not blank(im[i])), None)
+    out = {"anchor": how}
     if cont is None: return {"err": "no_content"}
     out["content"] = round(t[cont], 1)
     end = max(j for j in range(cont, len(t)) if t[j] - t[cont] <= 2000) + 1
     fin = body(im[end - 1])
     s_i = next((i for i in range(cont, end) if all(np.abs(body(im[j]) - fin).mean() < 3 for j in range(i, end))), None)
     out["settled"] = round(t[s_i], 1) if s_i is not None else None
-    fb = next((i for i in range(len(t)) if t[i] >= 0 and blank(im[i]) and np.abs(body(im[i]) - ref).mean() > 10), None)
+    fb = next((i for i in range(len(t)) if t[i] >= 0 and blank(im[i]) and np.abs(grid(im[i]) - ref).mean() > 10), None)
     out["blank_ms"] = round(t[cont] - t[fb], 1) if (fb is not None and fb < cont) else 0.0
     return out
 
 
 def visual_photo(m, start):
-    try: pts, im, off = frames(f"{d}/{m['rec']}")
+    try: t, im, how = times(m, start)
     except Exception: return {}
-    if off is None or start is None: return {"err": "no_ocr"}
-    t = [rel((p + off) % 60, start) for p in pts]
+    if t is None: return {"err": "no_ocr"}
     band = im[:, int(H * .25):int(H * .75)]
     sq = im[:, int(H * .42):int(H * .58), int(W * .3):int(W * .7)]
     sw = None
@@ -126,9 +182,17 @@ def visual_photo(m, start):
     endi = sw if sw else len(t)
     fin_sq = sq[endi - 1]
     out = {}
+    sqm = sq.mean(axis=(1, 2))
+    fb = next((i for i in range(endi) if t[i] >= 0 and sqm[i] < 8), None)
+    if fb is not None:
+        nb = next((i for i in range(fb, endi) if sqm[i] >= 8), None)
+        out["black_ms"] = round(t[nb] - t[fb], 1) if nb is not None else None
+    else:
+        out["black_ms"] = 0.0
     fv = next((i for i in range(endi) if t[i] >= 0 and np.abs(sq[i] - fin_sq).mean() < 20), None)
     out["first"] = round(t[fv], 1) if fv is not None else None
-    ch = [i for i in range(max(1, fv or 1), endi) if np.abs(band[i] - band[i - 1]).mean() > 1.0]
+    # refinement happens within ~0.5 s of the first picture; later changes (swipe start, UI) are not full-res
+    ch = [i for i in range(max(1, fv or 1), endi) if np.abs(band[i] - band[i - 1]).mean() > 1.0 and fv is not None and t[i] - t[fv] <= 1500]
     out["fullres"] = round(t[ch[-1]], 1) if ch else out["first"]
     if sw:
         fin2 = band[-1]
@@ -137,10 +201,9 @@ def visual_photo(m, start):
 
 
 def visual_player(m, start):
-    try: pts, im, off = frames(f"{d}/{m['rec']}")
+    try: t, im, how = times(m, start)
     except Exception: return {}
-    if off is None or start is None: return {"err": "no_ocr"}
-    t = [rel((p + off) % 60, start) for p in pts]
+    if t is None: return {"err": "no_ocr"}
     mid = im[:, int(H * .47):int(H * .53)]
     centre = mid[:, :, int(W * .42):int(W * .58)].mean(axis=(1, 2))
     left = mid[:, :, int(W * .02):int(W * .1)].mean(axis=(1, 2))
@@ -160,25 +223,28 @@ def visual_player(m, start):
     return out
 
 
+calibrate()
 rows = collections.defaultdict(list)
 for m in R:
     s = m["scen"]; b = m["build"]; r = {"total": m.get("total"), "launch": m.get("launch")}
     if s == "gridcold":
-        st0 = start_ss(m); sp = splash(m, st0); r["splash_ms"] = sp
-        r.update(visual_grid(m, st0, sp))
+        st0 = start_ss(m); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
+        r.update(visual_grid(m, st0, sp_end))
         r["m_grid_drawn"] = fgperf(m, "grid_drawn", st0) if st0 else None
         r["m_last_cover"] = fgperf(m, "thumb_drawn", st0, last=True) if st0 else None
         r["pss_mb"] = round(m["pss_kb"] / 1024, 1) if m.get("pss_kb") else None
+        r["displayed"] = displayed(m, st0)
     elif s in ("albumcold", "albumwarm"):
-        st0 = start_ss(m, "MediaActivity"); r.update(visual_grid(m, st0, 0))
+        st0 = start_ss(m, "MediaActivity"); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
+        r.update(visual_grid(m, st0, sp_end))
     elif s == "photo":
-        st0 = start_ss(m, "ViewPagerActivity"); r.update(visual_photo(m, st0))
+        st0 = start_ss(m, "ViewPagerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_photo(m, st0))
         r["m_fullres"] = fgperf(m, "photo_fullres_ready", st0) if st0 else None
     elif s == "player":
-        st0 = start_ss(m, "VideoPlayerActivity"); r.update(visual_player(m, st0))
+        st0 = start_ss(m, "VideoPlayerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_player(m, st0))
         r["m_first_frame"] = fgperf(m, "player_first_frame", st0) if st0 else None
     elif s == "picker":
-        st0 = start_ss(m); sp = splash(m, st0); r["splash_ms"] = sp; r.update(visual_grid(m, st0, sp))
+        st0 = start_ss(m); sp, sp_end = splash(m, st0); r["splash_ms"] = sp; r.update(visual_grid(m, st0, sp_end))
     elif s.startswith("scroll"):
         g = m.get("gfx", {}); r = {k: float(v) for k, v in g.items() if v is not None}
     rows[(b, s)].append(r)
