@@ -142,6 +142,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         get() = binding.videoAppbar
 
     private var mFirstFrameRendered = false
+    private var mRevealPending = false
 
     public override fun onCreate(savedInstanceState: Bundle?) {
         org.fossify.gallery.helpers.PerfTrace.mark("player_create")
@@ -257,7 +258,17 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     private fun initPlayer() {
         mUri = intent.data ?: return
-        org.fossify.gallery.helpers.VideoPoster.load(this, intent, mUri!!) { poster ->
+        // fast12: the TextureView stays transparent until it has the video's size, otherwise the first decoded frame
+        // is drawn stretched to the full screen for one frame (upstream glitch, seen in every recording)
+        binding.videoSurface.alpha = 0f
+        org.fossify.gallery.helpers.VideoPoster.load(this, intent, mUri!!, onSize = { w, h ->
+            if (mVideoSize.x == 0 || mVideoSize.y == 0) {
+                mVideoSize.x = w
+                mVideoSize.y = h
+                setVideoSize()
+                revealSurfaceAfterLayout()
+            }
+        }) { poster ->
             if (!mFirstFrameRendered) {
                 binding.videoPoster.setImageDrawable(poster)
                 binding.videoPoster.beVisible()
@@ -440,6 +451,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             override fun onRenderedFirstFrame() {
                 org.fossify.gallery.helpers.PerfTrace.mark("player_first_frame")
                 mFirstFrameRendered = true
+                revealSurfaceAfterLayout()
             }
 
             override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
@@ -454,6 +466,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 mVideoSize.x = videoSize.width
                 mVideoSize.y = videoSize.height
                 setVideoSize()
+                revealSurfaceAfterLayout()
             }
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
@@ -902,12 +915,33 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
         // fast12: the TextureView latched a video frame in this draw; drop the poster from the next frame on
-        if (mFirstFrameRendered && binding.videoPoster.visibility == View.VISIBLE) {
-            binding.videoPoster.post {
-                binding.videoPoster.beGone()
-                binding.videoPoster.setImageDrawable(null)
-            }
+        if (mFirstFrameRendered && binding.videoSurface.alpha == 1f) hidePosterNextFrame()
+    }
+
+    private fun hidePosterNextFrame() {
+        if (binding.videoPoster.visibility != View.VISIBLE) return
+        binding.videoPoster.post {
+            binding.videoPoster.beGone()
+            binding.videoPoster.setImageDrawable(null)
         }
+    }
+
+    /** fast12: make the TextureView visible in the first draw after its new size has been laid out */
+    private fun revealSurfaceAfterLayout() {
+        val v = binding.videoSurface
+        if (v.alpha == 1f || mRevealPending) return
+        mRevealPending = true
+        v.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (v.isLayoutRequested) return true
+                v.viewTreeObserver.removeOnPreDrawListener(this)
+                mRevealPending = false
+                v.alpha = 1f
+                if (mFirstFrameRendered) hidePosterNextFrame()
+                return true
+            }
+        })
+        v.invalidate()
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
