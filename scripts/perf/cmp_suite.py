@@ -73,7 +73,9 @@ def input_watch(dev):
             why.append(f"physical input on {dev}"); abort.set(); log("ABORT: physical input", dev); return
 
 
-def home(): sh("input keyevent 3"); nap(1.2)
+def home():
+    # a second HOME on Nova's home screen opens its app search with the keyboard: BACK twice closes both (no-op otherwise)
+    sh("input keyevent 3"); nap(0.6); sh("input keyevent 4"); nap(0.3); sh("input keyevent 4"); nap(0.8)
 
 
 def amstart(args, root=False):
