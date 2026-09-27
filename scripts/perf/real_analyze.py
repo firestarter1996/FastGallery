@@ -52,11 +52,14 @@ def visual(m):
     elif m["scen"].startswith("album"):
         # appear = first frame that differs from the starting screen (launcher / album grid); settled = first frame
         # after which the picture stays within a small distance of the final frame (screenrecord emits frames on change)
-        full = im
+        # status bar (clock/icons) excluded; the final look = last frame within 2 s of appearing (a scrollbar fade
+        # ~2.4 s later is not part of opening the album)
+        full = im[:, int(H * .04):]
         app = next((i for i in range(1, len(t)) if np.abs(full[i] - full[0]).mean() > 10), None)
         if app is not None:
-            fin = full[-1]
-            st_i = next((i for i in range(app, len(t)) if all(np.abs(full[j] - fin).mean() < 3 for j in range(i, len(t)))), None)
+            end = max(j for j in range(app, len(t)) if t[j] - t[app] <= 2000) + 1
+            fin = full[end - 1]
+            st_i = next((i for i in range(app, end) if all(np.abs(full[j] - fin).mean() < 3 for j in range(i, end))), None)
             out["settle_after_first_frame"] = (t[st_i] - t[app]) if st_i is not None else None
     else:
         first_black = blk[0] if blk else None
@@ -93,9 +96,9 @@ for m in R:
             r["m_next_fullres_after_select"] = (ev(m, "photo_fullres_ready", lambda x: "vis=true" in x, after=sel) or float("nan")) - sel
         r["pager_sets"] = sum(1 for t, x in m.get("ev", []) if "vp_pager_set" in x)
         r.update(visual(m))
-    elif s in ("video", "player"):
+    elif s in ("video", "player", "playertap"):
         r.update(visual(m))
-        for k in ("player_surface", "player_ready", "player_first_frame"):
+        for k in ("player_poster", "player_surface", "player_ready", "player_first_frame"):
             r[k] = ev(m, k)
     r["launch"] = m.get("launch")
     rows[(s, m["build"])].append(r)

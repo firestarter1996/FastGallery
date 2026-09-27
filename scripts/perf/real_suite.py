@@ -160,6 +160,15 @@ def record_pull(p, name):
     sh(f"rm -f /data/local/tmp/{name}.mp4")
 
 
+def video_tile():
+    """centre of the first video tile (its duration label) on the current Camera grid screen, via uiautomator"""
+    x = sh("uiautomator dump /data/local/tmp/fg_ui.xml >/dev/null 2>&1; cat /data/local/tmp/fg_ui.xml; rm -f /data/local/tmp/fg_ui.xml", 30)
+    for mm in re.finditer(r'resource-id="org\.fossify\.gallery:id/video_duration"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', x):
+        a, b, c, d = map(int, mm.groups())
+        if b > 400: return ((a + c) // 2, (b + d) // 2)
+    return None
+
+
 def run_one(scen, tag):
     check()
     m = {"scen": scen}
@@ -189,6 +198,22 @@ def run_one(scen, tag):
         m["total"], m["launch"] = su_amstart(f"-n {PKG}/.activities.VideoPlayerActivity -d \"file://{VIDEO}\" -t video/mp4")
         nap(3.5)
         m["t0"], m["ev"] = parse(perf_lines(), "VideoPlayerActivity")
+        record_pull(rp, rec); m["rec"] = rec + ".mp4"
+    elif scen == "playertap":   # the owner's real path: tap a video tile in the Camera grid (grid -> launchGesturePlayer)
+        sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check()
+        xy = video_tile()
+        if not xy:
+            m["error"] = "no video tile on the first Camera screen"; sh("input keyevent 3"); return m
+        sh("logcat -c")
+        rec = f"{scen}_{tag}"
+        rp = record_start(rec, 5); time.sleep(0.6)
+        sh(f"input -d 0 tap {xy[0]} {xy[1]}"); nap(3.5)
+        lines = perf_lines()
+        m["t0"], m["ev"] = parse(lines, "VideoPlayerActivity")
+        d = next((l for l in lines if "Displayed" in l and "VideoPlayerActivity" in l), "")
+        dm = re.search(r"\+(?:(\d+)s)?(\d+)ms", d)
+        m["total"] = (int(dm.group(1) or 0) * 1000 + int(dm.group(2))) if dm else None
+        m["launch"] = "TAP"
         record_pull(rp, rec); m["rec"] = rec + ".mp4"
     elif scen in ("photo", "video"):
         sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check(); sh("logcat -c")
