@@ -49,6 +49,15 @@ def visual(m):
             fin2 = band[-1]
             out["next_visible"] = next((t[i] - t[sw] for i in range(sw, len(t)) if all(np.abs(band[j] - fin2).mean() < 4 for j in range(i, min(len(t), i + 6)))), None)
             out["swipe_black_frames"] = int(sum(1 for i in range(sw, len(t)) if mean[i] < 8))
+    elif m["scen"].startswith("album"):
+        # appear = first frame that differs from the starting screen (launcher / album grid); settled = first frame
+        # after which the picture stays within a small distance of the final frame (screenrecord emits frames on change)
+        full = im
+        app = next((i for i in range(1, len(t)) if np.abs(full[i] - full[0]).mean() > 10), None)
+        if app is not None:
+            fin = full[-1]
+            st_i = next((i for i in range(app, len(t)) if all(np.abs(full[j] - fin).mean() < 3 for j in range(i, len(t)))), None)
+            out["settle_after_first_frame"] = (t[st_i] - t[app]) if st_i is not None else None
     else:
         first_black = blk[0] if blk else None
         if first_black is not None:
@@ -70,6 +79,10 @@ for m in R:
         if "pss_kb" in m: r["pss_mb"] = m["pss_kb"] / 1024
     elif s.startswith("album"):
         r["thumbs"] = ev(m, "media_thumbs")
+        if m.get("rec"):
+            r.update(visual(m))
+            if r.get("settle_after_first_frame") is not None and r.get("total"):
+                r["thumbs_settled_est"] = r["total"] + r["settle_after_first_frame"]
     elif s == "photo":
         r["m_placeholder"] = ev(m, "photo_placeholder")
         r["m_screen_ready"] = ev(m, "photo_screen_ready", lambda x: "vis=true" in x)
