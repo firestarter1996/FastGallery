@@ -40,7 +40,7 @@ object VideoPoster {
     }
 
     /** calls [onReady] on the main thread with the poster, or never (no cached thumbnail, unknown size, switched off) */
-    fun load(activity: Activity, intent: Intent, uri: Uri, onReady: (Drawable) -> Unit) {
+    fun load(activity: Activity, intent: Intent, uri: Uri, onSize: (Int, Int) -> Unit, onReady: (Drawable) -> Unit) {
         val started = PerfTrace.sinceStart()
         ensureBackgroundThread {
             if (File(activity.filesDir, "perf_no_video_poster").exists()) return@ensureBackgroundThread
@@ -64,11 +64,15 @@ object VideoPoster {
             val vPath: String = path ?: return@ensureBackgroundThread
             val vSig: String = sig ?: return@ensureBackgroundThread
             val vParent: String = parent ?: return@ensureBackgroundThread
-            val spec = ThumbSizes.get(activity, "media:$vParent") ?: ThumbSizes.get(activity, "media") ?: return@ensureBackgroundThread
-            if (spec.round != ROUNDED_CORNERS_NONE) return@ensureBackgroundThread
             val (w, h) = displayedSize(activity, vPath) ?: return@ensureBackgroundThread
+            val spec = ThumbSizes.get(activity, "media:$vParent") ?: ThumbSizes.get(activity, "media")
+            if (spec == null || spec.round != ROUNDED_CORNERS_NONE) {
+                activity.runOnUiThread { if (!activity.isFinishing && !activity.isDestroyed) onSize(w, h) }
+                return@ensureBackgroundThread
+            }
             activity.runOnUiThread {
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                onSize(w, h)
                 activity.buildThumbnailRequest(
                     path = vPath,
                     cropThumbnails = spec.crop,
