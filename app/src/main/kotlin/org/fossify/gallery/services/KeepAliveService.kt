@@ -1,10 +1,13 @@
 package org.fossify.gallery.services
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import org.fossify.gallery.helpers.PerfTrace
 import java.io.File
 
@@ -24,10 +27,12 @@ class KeepAliveService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!KeepAlive.enabled(this)) {
             PerfTrace.mark("keepalive_off")
+            KeepAlive.cancelRefresh(this)
             stopSelf()
             return START_NOT_STICKY
         }
         PerfTrace.mark("keepalive_on", "flags=$flags")
+        KeepAlive.scheduleRefresh(this)
         return START_STICKY
     }
 }
@@ -37,6 +42,34 @@ object KeepAlive {
         if (File(context.filesDir, "no_keep_alive").exists()) return false
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
         return pm.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    /**
+     * fast12: Android demotes a started service to a cached process once it has not been (re)started for 30 min of
+     * uptime (MAX_SERVICE_INACTIVITY; seen on the 6 Pro: adj 800 -> 975-999 after 30 min, then frozen/killable).
+     * Re-starting it every 15 min (inexact) resets that clock. Non-wakeup inexact alarm: it never wakes a sleeping phone (the
+     * clock is uptime-based, so it does not run while asleep either); one tiny start command, no work.
+     */
+    private const val REFRESH_MS = 15 * 60 * 1000L   // inexact: may fire up to ~75% later, still < 30 min
+
+    private fun refreshIntent(context: Context) = PendingIntent.getService(
+        context, 7302, Intent(context, KeepAliveService::class.java),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
+
+    fun scheduleRefresh(context: Context) {
+        try {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            am.setInexactRepeating(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + REFRESH_MS, REFRESH_MS, refreshIntent(context))
+        } catch (e: Exception) {
+        }
+    }
+
+    fun cancelRefresh(context: Context) {
+        try {
+            (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(refreshIntent(context))
+        } catch (e: Exception) {
+        }
     }
 
     /** call off the main thread */
