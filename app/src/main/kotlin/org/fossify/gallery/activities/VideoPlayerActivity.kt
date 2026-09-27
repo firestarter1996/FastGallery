@@ -141,6 +141,8 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     override val appBarLayout: AppBarLayout
         get() = binding.videoAppbar
 
+    private var mFirstFrameRendered = false
+
     public override fun onCreate(savedInstanceState: Bundle?) {
         org.fossify.gallery.helpers.PerfTrace.mark("player_create")
         super.onCreate(savedInstanceState)
@@ -255,6 +257,12 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     private fun initPlayer() {
         mUri = intent.data ?: return
+        org.fossify.gallery.helpers.VideoPoster.load(this, intent) { poster ->
+            if (!mFirstFrameRendered) {
+                binding.videoPoster.setImageDrawable(poster)
+                binding.videoPoster.beVisible()
+            }
+        }
         binding.videoToolbar.title = getFilenameFromUri(mUri!!)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -431,6 +439,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
             override fun onRenderedFirstFrame() {
                 org.fossify.gallery.helpers.PerfTrace.mark("player_first_frame")
+                mFirstFrameRendered = true
             }
 
             override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
@@ -891,7 +900,15 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         mIsDragged = false
     }
 
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+        // fast12: the TextureView latched a video frame in this draw; drop the poster from the next frame on
+        if (mFirstFrameRendered && binding.videoPoster.visibility == View.VISIBLE) {
+            binding.videoPoster.post {
+                binding.videoPoster.beGone()
+                binding.videoPoster.setImageDrawable(null)
+            }
+        }
+    }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
 
