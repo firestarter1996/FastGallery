@@ -36,6 +36,7 @@ import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isMediaFile
+import org.fossify.commons.extensions.isPathOnOTG
 import org.fossify.commons.extensions.isVideoFast
 import org.fossify.commons.extensions.isVisible
 import org.fossify.commons.extensions.recycleBinPath
@@ -87,6 +88,8 @@ import org.fossify.gallery.extensions.showRestoreConfirmationDialog
 import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.ScanCache
+import org.fossify.gallery.helpers.MediaSnapshot
+import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -662,6 +665,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (mLoadedInitialPhotos) {
             startAsyncTask()
         } else {
+            bindMediaSnapshot()
             getCachedMedia(
                 mPath,
                 mIsGetVideoIntent && !mIsGetImageIntent,
@@ -681,8 +685,31 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mLoadedInitialPhotos = true
     }
 
+    // FastGallery (fast10): bind the album's saved first screens on the first frame, the DB list replaces them ~130 ms later
+    private fun canUseMediaSnapshot() = !mShowAll && mPath.isNotEmpty() && mPath != FAVORITES && mPath != RECYCLE_BIN &&
+        !mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent && !isPathOnOTG(mPath) && !config.isFolderProtected(mPath) &&
+        !MediaSnapshot.isDisabled(this)
+
+    private fun bindMediaSnapshot() {
+        if (mMedia.isNotEmpty() || !canUseMediaSnapshot()) return
+        val started = PerfTrace.sinceStart()
+        val snapshot = MediaSnapshot.read(this, mPath)
+        PerfTrace.mark("media_snapshot", "n=${snapshot?.size ?: -1} took=${PerfTrace.sinceStart() - started} $mPath")
+        if (snapshot.isNullOrEmpty()) return
+        mMedia = snapshot
+        binding.loadingIndicator.hide()
+        // bound right after the first frame: binding ~40 tiles inside the first traversal delayed the album screen
+        // itself by ~30 ms; this way it appears as fast as before and the thumbnails follow one frame later
+        binding.mediaGrid.post {
+            if (!isFinishing && !isDestroyed && mMedia === snapshot && binding.mediaGrid.adapter == null) {
+                setupAdapter()
+            }
+        }
+    }
+
     private fun startAsyncTask() {
         mCurrAsyncTask?.stopFetching()
+        val snapshotMtime = if (canUseMediaSnapshot()) File(mPath).lastModified() else 0L
         mCurrAsyncTask = GetMediaAsynctask(
             context = applicationContext,
             mPath = mPath,
@@ -695,6 +722,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 val newMedia = it
                 try {
                     gotMedia(newMedia, false)
+                    if (snapshotMtime > 0L) {
+                        MediaSnapshot.write(applicationContext, mPath, newMedia, snapshotMtime)
+                    }
 
                     // remove cached files that are no longer valid for whatever reason
                     val newPaths = newMedia.mapNotNull { it as? Medium }.map { it.path }
