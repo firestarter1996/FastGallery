@@ -21,14 +21,15 @@ import org.fossify.gallery.models.ThumbnailSection
 import java.io.File
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MediaFetcher(val context: Context) {
     var shouldStop = false
 
     // on Android 11 we fetch all files at once from MediaStore and have it split by folder, use it if available
     fun getFilesFrom(
-        curPath: String, isPickImage: Boolean, isPickVideo: Boolean, getProperDateTaken: Boolean, getProperLastModified: Boolean,
-        getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean,
+        curPath: String, isPickImage: Boolean, isPickVideo: Boolean, requestedDateTaken: Boolean, requestedLastModified: Boolean,
+        requestedFileSize: Boolean, favoritePaths: ArrayList<String>, requestedVideoDurations: Boolean,
         lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?,
         lazyMaps: LazyScanMaps? = null
     ): ArrayList<Medium> {
@@ -36,6 +37,21 @@ class MediaFetcher(val context: Context) {
         if (filterMedia == 0) {
             return ArrayList()
         }
+
+        // FastGallery (fast10): MainActivity (album tiles: no video durations, directory sorting) and MediaActivity (the
+        // album's own sorting, durations when shown) asked for different row details, so each entry point's signature
+        // missed the other's and every album open rescanned in the background (and the next launch rescanned again,
+        // overwriting the durations). The folder's rows now carry the union of both: a request is served from the cache
+        // when the stored scan already has every detail it needs, and a real scan keeps what the last one collected.
+        val storedFlags = if (PerfTrace.legacy || curPath == FAVORITES || curPath == RECYCLE_BIN) {
+            null
+        } else {
+            ScanCache.storedFlags(ScanCache.get(context, curPath), filterMedia, context.config.shouldShowHidden)
+        }
+        val getProperDateTaken = requestedDateTaken || storedFlags?.get(0) == true
+        val getProperLastModified = requestedLastModified || storedFlags?.get(1) == true
+        val getProperFileSize = requestedFileSize || storedFlags?.get(2) == true
+        val getVideoDurations = requestedVideoDurations || storedFlags?.get(3) == true
 
         val curMedia = ArrayList<Medium>()
         if (context.isPathOnOTG(curPath)) {
@@ -65,7 +81,7 @@ class MediaFetcher(val context: Context) {
             val cacheable = curMedia.isEmpty() && curPath != FAVORITES && curPath != RECYCLE_BIN && !ScanCache.forceNextScan
             val dirMtime = if (cacheable) ScanCache.dirMtime(curPath) else 0L
             if (cacheable && dirMtime > 0L) {
-                val stored = ScanCache.get(context, curPath)
+                var stored = ScanCache.get(context, curPath)
                 if (stored != null) {
                     // FastGallery: hidden rows (e.g. Google Photos' ".trashed-*" files) are skipped by the scan but were never
                     // purged from the DB, so the Camera/Screenshots row counts never matched and the cache always missed.
@@ -76,6 +92,27 @@ class MediaFetcher(val context: Context) {
                     } else {
                         cachedAll.filter { !it.name.startsWith('.') }
                     }
+                    // FastGallery (fast10): the rows are right except that they lack video durations (MainActivity never
+                    // asks for them, the album grid shows them): fill those from one MediaStore query instead of a full
+                    // walk that called getDuration() per file (863 videos in Camera), then carry on as a normal hit.
+                    val withoutDurations = "$filterMedia|$getProperDateTaken|$getProperLastModified|$getProperFileSize|false|${context.config.shouldShowHidden}"
+                    if (!isPicker && getVideoDurations && storedFlags != null && !storedFlags[3] &&
+                        storedFlags[0] == getProperDateTaken && storedFlags[1] == getProperLastModified && storedFlags[2] == getProperFileSize &&
+                        ScanCache.matchesExceptMtime(stored, cached.size, withoutDurations)
+                    ) {
+                        val started = PerfTrace.sinceStart()
+                        val filled = fillVideoDurations(curPath, cached)
+                        if (!shouldStop) {
+                            try {
+                                context.mediaDB.insertAll(filled)
+                            } catch (ignored: Exception) {
+                            }
+                            ScanCache.replaceExtra(context, curPath, stored, scanExtra)
+                            stored = ScanCache.get(context, curPath)
+                        }
+                        PerfTrace.mark("scan_cache_durations", "videos=${filled.size} took=${PerfTrace.sinceStart() - started} $curPath")
+                    }
+
                     if (ScanCache.matches(stored, dirMtime, cached.size, scanExtra)) {
                         PerfTrace.mark("scan_cache_hit", "n=${cached.size} $curPath")
                         ScanCache.servedFromCache.add(curPath)
@@ -181,6 +218,31 @@ class MediaFetcher(val context: Context) {
 
         sortMedia(curMedia, context.config.getFolderSorting(curPath))
         return curMedia
+    }
+
+    /** Sets videoDuration (seconds, like Context.getDuration) on the videos in [media] from one MediaStore query; returns them. */
+    private fun fillVideoDurations(folder: String, media: List<Medium>): ArrayList<Medium> {
+        val videos = ArrayList(media.filter { it.isVideo() })
+        if (videos.isEmpty()) return videos
+        val durations = HashMap<String, Int>()
+        try {
+            val projection = arrayOf(MediaStore.Video.Media.DATA, MediaStore.Video.Media.DURATION)
+            val selection = "${MediaStore.Video.Media.DATA} LIKE ? AND ${MediaStore.Video.Media.DATA} NOT LIKE ?"
+            context.contentResolver.query(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI, projection, selection, arrayOf("$folder/%", "$folder/%/%"), null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val path = cursor.getString(0) ?: continue
+                    durations[path] = (cursor.getLong(1) / 1000.0).roundToInt()
+                }
+            }
+        } catch (ignored: Exception) {
+        }
+        videos.forEach {
+            if (shouldStop) return videos
+            it.videoDuration = durations[it.path] ?: context.getDuration(it.path) ?: 0
+        }
+        return videos
     }
 
     fun getFoldersToScan(): ArrayList<String> {

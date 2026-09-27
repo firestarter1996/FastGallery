@@ -45,6 +45,25 @@ object ScanCache {
         return parts.size == 3 && parts[2] == extra
     }
 
+    /**
+     * The row details (dateTaken, lastModified, fileSize, videoDurations) the stored scan collected, when it was made with
+     * the same type filter and hidden-files setting; null otherwise. See MediaFetcher.getFilesFrom (fast10).
+     */
+    fun storedFlags(stored: String?, filterMedia: Int, showHidden: Boolean): BooleanArray? {
+        if (stored == null) return null
+        val extra = stored.split("|", limit = 3).getOrNull(2) ?: return null
+        val p = extra.split("|")
+        if (p.size != 6 || p[0] != filterMedia.toString() || p[5] != showHidden.toString()) return null
+        return booleanArrayOf(p[1] == "true", p[2] == "true", p[3] == "true", p[4] == "true")
+    }
+
+    /** Keeps the stored mtime and row count, replaces the scan options (the rows were upgraded in place). */
+    fun replaceExtra(context: Context, path: String, stored: String, extra: String) {
+        val parts = stored.split("|", limit = 3)
+        if (parts.size != 3) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(path, "${parts[0]}|${parts[1]}|$extra").apply()
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
