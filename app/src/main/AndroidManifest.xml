@@ -337,6 +337,10 @@
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <service
+            android:name=".services.KeepAliveService"
+            android:exported="false" />
+
+        <service
             android:name=".jobs.ThumbnailPreloader"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />

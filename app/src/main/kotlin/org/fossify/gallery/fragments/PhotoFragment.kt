@@ -93,6 +93,8 @@ import org.fossify.gallery.helpers.NORMAL_TILE_DPI
 import org.fossify.gallery.helpers.PicassoRegionDecoder
 import org.fossify.gallery.helpers.SHOULD_INIT_FRAGMENT
 import org.fossify.gallery.helpers.WEIRD_TILE_DPI
+import org.fossify.gallery.helpers.PATH
+import org.fossify.gallery.helpers.ViewerPlaceholder
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.svg.SvgSoftwareLayerSetter
 import pl.droidsonroids.gif.InputSource
@@ -129,6 +131,9 @@ class PhotoFragment : ViewPagerFragment() {
     private var mCurrentGestureViewZoom = 1f
     private var mInitialZoom = 1f
     private var mHasInitialZoom = false
+    private var mOrientationKnown = false     // fast11: the EXIF read now runs in parallel with the Glide load
+    private var mScreenImageReady = false
+    private var mPlaceholder: Drawable? = null
 
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
@@ -154,6 +159,7 @@ class PhotoFragment : ViewPagerFragment() {
 
         mMedium = arguments.getSerializable(MEDIUM) as Medium
         mOriginalPath = mMedium.path
+        org.fossify.gallery.helpers.PerfTrace.mark("photo_view_created", mMedium.name)
 
         binding.apply {
             subsamplingView.setOnClickListener { photoClicked() }
@@ -247,6 +253,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (mIsFullscreen) {
             binding.bottomActionsDummy.beGone()
         }
+        showInstantPlaceholder()
         loadImage()
         initExtendedDetails()
         mWasInit = true
@@ -421,16 +428,42 @@ class PhotoFragment : ViewPagerFragment() {
             showPortraitStripe()
         }
 
+        // fast11: plain bitmaps start loading right away (Glide applies the EXIF rotation itself); the orientation is
+        // only needed for the zoomable view, which waits for it (see scheduleZoomableView)
+        val plainBitmap = !mMedium.isGIF() && !mMedium.isSVG() && !mMedium.isApng() && !mMedium.isAvif() && !mMedium.isPortrait()
+        mOrientationKnown = false
+        mScreenImageReady = false
+        if (plainBitmap) {
+            loadBitmap()
+        }
         ensureBackgroundThread {
-            mImageOrientation = getImageOrientation()
+            val orientation = getImageOrientation()
             activity?.runOnUiThread {
+                mImageOrientation = orientation
+                mOrientationKnown = true
                 when {
+                    plainBitmap -> if (mScreenImageReady && mIsFragmentVisible) scheduleZoomableView()
                     mMedium.isGIF() -> loadGif()
                     mMedium.isSVG() -> loadSVG()
                     mMedium.isApng() -> loadAPNG()
                     mMedium.isAvif() -> loadAVIF()
                     else -> loadBitmap()
                 }
+            }
+        }
+    }
+
+    /** fast11: the grid thumbnail the user tapped, drawn at the photo's size until the screen-sized image is decoded */
+    private fun showInstantPlaceholder() {
+        val activity = activity as? ViewPagerActivity ?: return
+        if (activity.instantPlaceholderUsed || activity.intent.getStringExtra(PATH) != mMedium.path) return
+        if (mMedium.isGIF() || mMedium.isSVG() || mMedium.isApng() || mMedium.isAvif() || mMedium.isPortrait() || mMedium.path.isWebP()) return
+        if (java.io.File(requireContext().filesDir, "perf_no_viewer_placeholder").exists()) return
+        activity.instantPlaceholderUsed = true
+        ViewerPlaceholder.load(requireContext(), mMedium) { placeholder ->
+            if (!mScreenImageReady && view != null) {
+                mPlaceholder = placeholder
+                binding.gesturesView.setImageDrawable(placeholder)
             }
         }
     }
@@ -511,6 +544,7 @@ class PhotoFragment : ViewPagerFragment() {
             .priority(priority)
             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
             .fitCenter()
+            .placeholder(mPlaceholder)
             .run {
                 if (mCurrentRotationDegrees != 0) {
                     transform(Rotate(mCurrentRotationDegrees))
@@ -540,6 +574,10 @@ class PhotoFragment : ViewPagerFragment() {
                     isFirstResource: Boolean
                 ): Boolean {
                     applyProperColorMode(resource)
+                    mScreenImageReady = true
+                    mHasInitialZoom = false   // the placeholder had the photo's full size, recompute the double-tap zoom
+                    mPlaceholder = null
+                    org.fossify.gallery.helpers.PerfTrace.mark("photo_screen_ready", "src=${dataSource.name} vis=$mIsFragmentVisible ${resource.intrinsicWidth}x${resource.intrinsicHeight} ${mMedium.name}")
                     val allowZoomingImages = context?.config?.allowZoomingImages ?: true
                     binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
@@ -732,7 +770,7 @@ class PhotoFragment : ViewPagerFragment() {
     private fun scheduleZoomableView() {
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mLoadZoomableViewHandler.postDelayed({
-            if (mIsFragmentVisible && context?.config?.allowZoomingImages == true && (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
+            if (mIsFragmentVisible && mOrientationKnown && context?.config?.allowZoomingImages == true && (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
                 addZoomableView()
             }
         }, ZOOMABLE_VIEW_LOAD_DELAY)
@@ -773,6 +811,7 @@ class PhotoFragment : ViewPagerFragment() {
 
             onImageEventListener = object : SubsamplingScaleImageView.OnImageEventListener {
                 override fun onReady() {
+                    org.fossify.gallery.helpers.PerfTrace.mark("photo_fullres_ready", "vis=$mIsFragmentVisible ${sWidth}x${sHeight} ${mMedium.name}")
                     background = ColorDrawable(
                         if (config.blackBackground) {
                             Color.BLACK

@@ -136,6 +136,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mLatestMediaId = 0L
     private var mLatestMediaDateId = 0L
     private var mLastMediaHandler = Handler()
+    @Volatile
+    private var mPollAllowed = false   // fast11: true between onResume and onPause
     private var mTempShowHiddenHandler = Handler()
     private var mCurrAsyncTask: GetMediaAsynctask? = null
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
@@ -202,6 +204,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onResume() {
         super.onResume()
+        mPollAllowed = true
         updateMenuColors()
         if (mStoredAnimateGifs != config.animateGifs) {
             getMediaAdapter()?.updateAnimateGifs(config.animateGifs)
@@ -272,6 +275,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onPause() {
         super.onPause()
+        mPollAllowed = false
         mIsGettingMedia = false
         binding.mediaRefreshLayout.isRefreshing = false
         storeStateVariables()
@@ -548,6 +552,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun checkLastMediaChanged() {
         if (isDestroyed || config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0) {
+            return
+        }
+        // fast11: the keep-alive leaves this process unfrozen in the background, so never let the 3 s MediaStore poll
+        // re-arm itself after onPause (a check that was running when the activity paused used to restart it)
+        if (!mPollAllowed) {
             return
         }
 

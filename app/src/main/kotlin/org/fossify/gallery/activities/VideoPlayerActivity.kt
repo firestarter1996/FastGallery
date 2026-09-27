@@ -142,6 +142,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         get() = binding.videoAppbar
 
     public override fun onCreate(savedInstanceState: Bundle?) {
+        org.fossify.gallery.helpers.PerfTrace.mark("player_create")
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         mPlaybackSpeedPill = binding.playbackSpeedPill
@@ -428,7 +429,12 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 }
             }
 
+            override fun onRenderedFirstFrame() {
+                org.fossify.gallery.helpers.PerfTrace.mark("player_first_frame")
+            }
+
             override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
+                if (playbackState == Player.STATE_READY && !mWasVideoStarted) org.fossify.gallery.helpers.PerfTrace.mark("player_ready")
                 when (playbackState) {
                     Player.STATE_READY -> videoPrepared()
                     Player.STATE_ENDED -> videoCompleted()
@@ -890,6 +896,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        org.fossify.gallery.helpers.PerfTrace.mark("player_surface")
         mExoPlayer?.setVideoSurface(Surface(binding.videoSurface.surfaceTexture))
     }
 

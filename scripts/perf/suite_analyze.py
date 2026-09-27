@@ -7,6 +7,12 @@ W, H = (168, 374) if scen in ("photo", "video") else (42, 94)
 raw = subprocess.run(["ffmpeg", "-v", "error", "-f", "h264", "-i", f"{lab}.h264", "-vf", f"scale={W}:{H}", "-vsync", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
 imgs = np.frombuffer(raw, np.uint8).reshape(-1, H, W, 3).astype(np.float32)
 n = min(len(imgs), len(fr))
+CROP_THR = 2.5
+crops = None
+if scen == "photo":   # native-resolution 384x384 centre crop (grey) to tell a blurry placeholder from the full picture
+    C = 384
+    rawc = subprocess.run(["ffmpeg", "-v", "error", "-f", "h264", "-i", f"{lab}.h264", "-vf", f"crop={C}:{C}:(iw-{C})/2:(ih-{C})/2", "-vsync", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+    crops = np.frombuffer(rawc, np.uint8).reshape(-1, C, C).astype(np.float32)
 def window(t0, t1): return [i for i in range(n) if t0 < fr[i]["pts"] < t1]
 def settle(idx, t0, final, thr):
     for i in idx:
@@ -27,9 +33,34 @@ for r, m in enumerate(d["marks"]):
         ts = fr[sw]["pts"]
         idx = window(t0, ts - 1); final = imgs[idx[-1]]
         row["first_change"] = next((fr[i]["pts"] - t0 for i in idx if np.abs(imgs[i] - ref).mean() > 2), None)
-        row["photo_settled"] = settle(idx, t0, final, 1.0)
+        row["photo_settled"] = settle(idx, t0, final, 1.0)   # includes the toolbar auto-hide (hide_system_ui, 500 ms)
+        # photo only (toolbar/bottom bar excluded): visible = the picture band is 70% of the way from the black viewer
+        # frame to its final look; full = a native-resolution centre crop matches the final one (detail, not just colour)
+        b0, b1 = int(H * .2), int(H * .8)
+        def band(i): return imgs[i][b0:b1]
+        fb = band(idx[-1])
+        blk = next((i for i in idx if imgs[i].mean() < 8), None)
+        if blk is not None:
+            dblk = max(np.abs(band(blk) - fb).mean(), 1e-3)
+            row["photo_visible"] = next((fr[i]["pts"] - t0 for i in idx if fr[i]["pts"] >= fr[blk]["pts"] and np.abs(band(i) - fb).mean() < .3 * dblk), None)
+        if crops is not None:
+            fc = crops[idx[-1]]
+            row["photo_full"] = next((fr[i]["pts"] - t0 for i in idx if i < len(crops) and np.abs(crops[i] - fc).mean() < CROP_THR and all(np.abs(crops[j] - fc).mean() < CROP_THR for j in idx if fr[j]["pts"] > fr[i]["pts"] and j < len(crops))), None)
         idx2 = [i for i in window(ts - 1, ts + 2900)]; final2 = imgs[idx2[-1]]
         row["next_settled"] = settle(idx2, ts, final2, 1.0)
+        fb2 = final2[b0:b1]
+        row["next_visible"] = next((fr[i]["pts"] - ts for i in idx2 if np.abs(imgs[i][b0:b1] - fb2).mean() < 3), None)
+        if crops is not None:
+            fc2 = crops[idx2[-1]]
+            row["next_full"] = next((fr[i]["pts"] - ts for i in idx2 if all(np.abs(crops[j] - fc2).mean() < CROP_THR for j in idx2 if fr[j]["pts"] >= fr[i]["pts"])), None)
+        # app markers (device monotonic ms, same clock as START): the shown photo's full-resolution layer ready
+        pm = [(float(l.split()[0]) * 1000, l) for l in m.get("perf_mono", [])]
+        fo = next((t for t, l in pm if "photo_fullres_ready" in l and "vis=true" in l), None)
+        if fo is not None: row["m_open_full"] = fo - t0
+        sel = next((t for t, l in pm if "vp_page_selected" in l and t > t0 + 1000), None)
+        if sel is not None:
+            f2 = next((t for t, l in pm if "photo_fullres_ready" in l and "vis=true" in l and t > sel), None)
+            if f2 is not None: row["m_next_full_after_select"] = f2 - sel
     else:
         idx = window(t0, t0 + 2900); final = imgs[idx[-1]]
         row["first_change"] = next((fr[i]["pts"] - t0 for i in idx if np.abs(imgs[i] - ref).mean() > 2), None)

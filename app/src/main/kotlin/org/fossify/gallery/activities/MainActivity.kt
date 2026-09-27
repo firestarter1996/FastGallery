@@ -198,6 +198,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mDateFormat = ""
     private var mTimeFormat = ""
     private var mLastMediaHandler = Handler()
+    @Volatile
+    private var mPollAllowed = false   // fast11: true between onResume and onPause
     private var mTempShowHiddenHandler = Handler()
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
     private var mLastMediaFetcher: MediaFetcher? = null
@@ -365,6 +367,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onResume() {
         super.onResume()
+        mPollAllowed = true
         updateMenuColors()
         config.isThirdPartyIntent = false
         mDateFormat = config.dateFormat
@@ -428,6 +431,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onPause() {
         super.onPause()
+        mPollAllowed = false
         binding.directoriesRefreshLayout.isRefreshing = false
         mIsGettingDirs = false
         storeStateVariables()
@@ -1764,6 +1768,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun checkLastMediaChanged() {
         if (isDestroyed) {
+            return
+        }
+        // fast11: the keep-alive leaves this process unfrozen in the background, so never let the 3 s MediaStore poll
+        // re-arm itself after onPause (a check that was running when the activity paused used to restart it)
+        if (!mPollAllowed) {
             return
         }
 
