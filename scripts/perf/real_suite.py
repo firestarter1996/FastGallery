@@ -14,11 +14,23 @@ timestamps (all converted to ms since START), PSS for grid launches, and for pho
 for alignment-free visual checks (black gap before the picture, flicker after it).
 """
 import json, os, re, subprocess, sys, threading, time
-S = "10.13.13.4:5555"; PKG = "org.fossify.gallery"; LAUNCH = f"{PKG}/.activities.SplashActivity.Green"
+S = os.environ.get("FG_SERIAL", "10.13.13.4:5555"); PKG = "org.fossify.gallery"; LAUNCH = f"{PKG}/.activities.SplashActivity.Green"
 LAUNCHER = "com.teslacoilsw.launcher"; CAM = "/storage/emulated/0/DCIM/Camera"
 out, plan = sys.argv[1], [(p.split(":")[0], int(p.split(":")[1])) for p in sys.argv[2].split(",")]
 SCEN = (sys.argv[3] if len(sys.argv) > 3 else "gridcold,gridwarm,albumcold,albumwarm,photo,video").split(",")
 os.makedirs(out, exist_ok=True)
+# device profile (defaults = owner's Pixel 8 Pro); Pixel 6 Pro: FG_SERIAL=192.168.1.69:5555 FG_INPUTS=/dev/input/event3,/dev/input/event1
+# FG_SWIPE="1250 1560 150 1560" FG_REC=720x1560
+INPUTS = os.environ.get("FG_INPUTS", "/dev/input/event2,/dev/input/event0").split(",")
+SWIPE = os.environ.get("FG_SWIPE", "1150 1500 150 1500")
+REC = os.environ.get("FG_REC", "672x1496")
+# never run while another job owns the phone: FG_BLACKOUT="08:50-09:25" (local time, comma-separated ranges)
+BLACKOUT = [tuple(r.split("-")) for r in os.environ.get("FG_BLACKOUT", "").split(",") if "-" in r]
+
+
+def in_blackout():
+    now = time.strftime("%H:%M")
+    return any(a <= now < b for a, b in BLACKOUT)
 abort = threading.Event(); why = []
 
 
@@ -69,6 +81,8 @@ class Abort(Exception):
 
 def check():
     if abort.is_set(): raise Abort(why[-1] if why else "abort")
+    if in_blackout():
+        why.append("blackout window"); abort.set(); log("ABORT: blackout window (another job uses the phone)"); raise Abort("blackout")
     sh("input keyevent 0")   # KEYCODE_UNKNOWN: ignored by apps, but counts as user activity so the screen stays on
     good, st = ok_now()
     if good and not battery_ok():
@@ -135,7 +149,7 @@ def viewer(path): return su_amstart(f"-n {PKG}/.activities.ViewPagerActivity --e
 
 def record_start(name, secs):
     sh(f"rm -f /data/local/tmp/{name}.mp4")
-    return subprocess.Popen(["adb", "-s", S, "shell", f"screenrecord --size 672x1496 --bit-rate 8000000 --time-limit {secs} /data/local/tmp/{name}.mp4"],
+    return subprocess.Popen(["adb", "-s", S, "shell", f"screenrecord --size {REC} --bit-rate 8000000 --time-limit {secs} /data/local/tmp/{name}.mp4"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -157,14 +171,17 @@ def run_one(scen, tag):
         home(); check(); sh("logcat -c")                       # grid activity still alive from the previous run
         m["total"], m["launch"] = launcher_start(); nap(2)
         m["t0"], m["ev"] = parse(perf_lines(), PKG)
-    elif scen == "albumcold":
-        sh(f"am force-stop {PKG}"); home(); check(); sh("logcat -c")
+    elif scen in ("albumcold", "albumwarm"):
+        # screenrecord: the album's thumbnails-settled time is measured visually (the media_thumbs marker only fires
+        # after 20 thumbnails, which a 6 Pro first screen with date headers never reaches)
+        sh(f"am force-stop {PKG}"); home()
+        if scen == "albumwarm": launcher_start(); nap(3)
+        check(); sh("logcat -c")
+        rec = f"{scen}_{tag}"
+        rp = record_start(rec, 4); time.sleep(0.8)
         m["total"], m["launch"] = camera(); nap(3)
         m["t0"], m["ev"] = parse(perf_lines(), "MediaActivity")
-    elif scen == "albumwarm":
-        sh(f"am force-stop {PKG}"); home(); launcher_start(); nap(3); check(); sh("logcat -c")
-        m["total"], m["launch"] = camera(); nap(3)
-        m["t0"], m["ev"] = parse(perf_lines(), "MediaActivity")
+        record_pull(rp, rec); m["rec"] = rec + ".mp4"
     elif scen == "player":   # the owner's path for videos (open_videos_on_separate_screen): grid tap -> VideoPlayerActivity
         sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check(); sh("logcat -c")
         rec = f"{scen}_{tag}"
@@ -180,7 +197,7 @@ def run_one(scen, tag):
         m["total"], m["launch"] = viewer(PHOTO if scen == "photo" else VIDEO)
         if scen == "photo":
             nap(2.2); check()
-            sh("input -d 0 swipe 1150 1500 150 1500 120"); nap(2.2)
+            sh(f"input -d 0 swipe {SWIPE} 120"); nap(2.2)
         else:
             nap(3.5)
         m["t0"], m["ev"] = parse(perf_lines(), "ViewPagerActivity")
@@ -198,7 +215,7 @@ if not good:
 newest = lambda ext: CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.{ext}$'").strip()
 PHOTO, VIDEO = newest("jpg"), newest("mp4")
 log("photo", PHOTO, "video", VIDEO)
-for dev in ("/dev/input/event2", "/dev/input/event0"):
+for dev in INPUTS:
     threading.Thread(target=input_watch, args=(dev,), daemon=True).start()
 time.sleep(1)
 results = json.load(open(f"{out}/real_results.json")) if os.path.exists(f"{out}/real_results.json") else []
@@ -209,10 +226,20 @@ try:
         if all((bi, sc, r) in done for sc in SCEN for r in range(k)):
             continue
         check()
-        apk, _, comp = build.partition("+")      # "B+speed" = install fgB.apk, then AOT-compile it with that filter
-        log("install", build, sh(f"su -c 'pm install -r -d /data/local/tmp/fg{apk}.apk'").strip())
+        # "B+speed" = install fgB.apk, then AOT-compile it with that filter;
+        # "B@speed-profile" = NO reinstall (keeps the app's accumulated ART profile), save the running process's
+        # profile (SIGUSR1), then recompile with that filter (verify = back to uncompiled/JIT)
+        if "@" in build:
+            apk, _, comp = build.partition("@")
+            pid = sh(f"pidof {PKG}").strip()
+            if pid: sh(f"su -c 'kill -USR1 {pid}'"); time.sleep(2)
+            sh(f"am force-stop {PKG}")
+        else:
+            apk, _, comp = build.partition("+")
+            log("install", build, sh(f"su -c 'pm install -r -d /data/local/tmp/fg{apk}.apk'").strip())
         if comp:
-            log("compile", comp, sh(f"cmd package compile -m {comp} -f {PKG}", 300).strip())
+            log("compile", comp, sh(f"cmd package compile -m {comp} -f {PKG}", 300).strip(),
+                sh(f"pm art dump {PKG} | grep -m1 -o 'status=[a-z-]*'").strip())
         ver = sh(f"dumpsys package {PKG} | grep -m1 versionName").strip()
         # warm-up after install (not measured): dex/profile state, scan cache, thumbnails in cache
         home(); launcher_start(); nap(2.5); camera(); nap(2); viewer(PHOTO); nap(1.5); home()
