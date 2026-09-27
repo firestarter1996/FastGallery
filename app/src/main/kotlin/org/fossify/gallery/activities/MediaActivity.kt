@@ -1013,7 +1013,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             when (config.videoPlayerType) {
                 VIDEO_PLAYER_SYSTEM -> openSystemDefaultPlayer(path)
-                VIDEO_PLAYER_APP -> if (config.gestureVideoPlayer) launchGesturePlayer(path) else openInViewPager(path)
+                VIDEO_PLAYER_APP -> if (config.gestureVideoPlayer) {
+                    launchGesturePlayer(path, poster = mMedia.firstOrNull { it is Medium && it.path == path } as? Medium)
+                } else openInViewPager(path)
                 else -> openInViewPager(path) // unreachable by design
             }
         }
@@ -1044,6 +1046,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun gotMedia(media: ArrayList<ThumbnailItem>, isFromCache: Boolean) {
         mIsGettingMedia = false
+        if (!mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent && media.any { it is Medium && it.isVideo() }) {
+            org.fossify.gallery.helpers.PlayerPrewarm.warm(this)
+        }
         checkLastMediaChanged()
         mMedia = media
 

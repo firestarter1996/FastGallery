@@ -77,7 +77,7 @@ fun Activity.openPath(path: String, forceChooser: Boolean, extras: HashMap<Strin
     openPathIntent(path, forceChooser, BuildConfig.APPLICATION_ID, extras = extras)
 }
 
-fun Activity.launchGesturePlayer(path: String, extras: HashMap<String, Boolean> = HashMap()) {
+fun Activity.launchGesturePlayer(path: String, extras: HashMap<String, Boolean> = HashMap(), poster: org.fossify.gallery.models.Medium? = null) {
     ensureBackgroundThread {
         val newUri = getFinalUriFromPath(path, BuildConfig.APPLICATION_ID)
         if (newUri == null) {
@@ -90,6 +90,7 @@ fun Activity.launchGesturePlayer(path: String, extras: HashMap<String, Boolean> 
             Intent(applicationContext, VideoPlayerActivity::class.java).apply {
                 setDataAndType(newUri, mimeType)
                 for ((key, value) in extras) putExtra(key, value)
+                org.fossify.gallery.helpers.VideoPoster.putExtras(this, poster)
                 startActivity(this)
             }
         }

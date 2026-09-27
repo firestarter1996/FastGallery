@@ -39,6 +39,15 @@
 
     </com.alexvasilkov.gestures.GestureFrameLayout>
 
+    <ImageView
+        android:id="@+id/video_poster"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
+
     <org.fossify.gallery.views.MediaSideScroll
         android:id="@+id/video_volume_controller"
         android:layout_width="@dimen/media_side_slider_width"
