@@ -63,6 +63,7 @@ def visual(m):
             out["settle_after_first_frame"] = (t[st_i] - t[app]) if st_i is not None else None
     else:
         first_black = blk[0] if blk else None
+        out["black_gap"] = 0.0      # no black frame at all
         if first_black is not None:
             out["black_gap"] = next((t[i] - t[first_black] for i in range(first_black, len(t)) if band[i].std() > 25), None)
     return out
