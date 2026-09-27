@@ -13,9 +13,7 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.helpers.isPiePlus
 import org.fossify.gallery.R
 import org.fossify.gallery.dialogs.StoragePermissionRequiredDialog
-import org.fossify.gallery.extensions.addPathToDB
 import org.fossify.gallery.extensions.config
-import org.fossify.gallery.extensions.updateDirectoryPath
 import org.fossify.gallery.helpers.getPermissionsToRequest
 
 open class SimpleActivity : BaseSimpleActivity() {
@@ -25,12 +23,9 @@ open class SimpleActivity : BaseSimpleActivity() {
     private val observer = object : ContentObserver(null) {
         override fun onChange(selfChange: Boolean, uri: Uri?) {
             super.onChange(selfChange, uri)
-            if (uri != null) {
-                val path = getRealPathFromURI(uri)
-                if (path != null) {
-                    updateDirectoryPath(path.getParentPath())
-                    addPathToDB(path)
-                }
+            // fast11: coalesced, and skipped while no gallery screen is started (see MediaChangeBatcher)
+            if (uri != null && org.fossify.gallery.App.startedActivities > 0) {
+                org.fossify.gallery.helpers.MediaChangeBatcher.post(applicationContext, uri)
             }
         }
     }

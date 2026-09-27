@@ -198,6 +198,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mIsSlideshowActive = false
     private var mPrevHashcode = 0
 
+    /** fast11: the tapped photo's grid thumbnail is shown as its placeholder only once per viewer */
+    var instantPlaceholderUsed = false
+
     private var mSlideshowHandler = Handler()
     private var mSlideshowInterval = SLIDESHOW_DEFAULT_INTERVAL
     private var mSlideshowMoveBackwards = false
@@ -578,6 +581,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun updatePagerItems(media: MutableList<Medium>) {
+        org.fossify.gallery.helpers.PerfTrace.mark("vp_pager_set", "n=${media.size} pos=$mPos")
         val pagerAdapter = MyPagerAdapter(this, supportFragmentManager, media)
         if (!isDestroyed) {
             pagerAdapter.shouldInitFragment = mPos < 5
@@ -1523,6 +1527,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {}
 
     override fun onPageSelected(position: Int) {
+        org.fossify.gallery.helpers.PerfTrace.mark("vp_page_selected", "pos=$position")
         if (mPos != position) {
             mPos = position
             updateActionbarTitle()

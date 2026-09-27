@@ -180,6 +180,8 @@ try:
             if scen == "photo":
                 swipe_left(); nap(3)
         m["fgperf"] = fgperf()
+        if scen == "photo":   # viewer markers with device-monotonic time (same clock as start_mono)
+            m["perf_mono"] = [l for l in sh("logcat -d -v monotonic -s FGPerf:I").splitlines() if ("photo_" in l or "vp_" in l)]
         if paused.is_set(): raise InterruptedError   # a run cut short by the watcher is not kept
         marks.append(m)
         print(i, {k: v for k, v in m.items() if k != "fgperf"}, [x for x in m["fgperf"] if "scan_cache" in x and "DCIM/Camera" in x][:2], flush=True)

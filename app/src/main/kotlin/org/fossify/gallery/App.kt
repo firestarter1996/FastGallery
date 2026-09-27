@@ -48,6 +48,7 @@ class App : FossifyApp() {
         }
         Thread {
             ThumbnailPreloader.ensureScheduled(this)
+            org.fossify.gallery.services.KeepAlive.start(this)
             SvgModule.deleteOldCacheOnce(this)
         }.start()
         Reprint.initialize(this)
