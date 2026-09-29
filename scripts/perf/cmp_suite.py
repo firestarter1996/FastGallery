@@ -92,6 +92,11 @@ def player(p): return amstart(f"-n {PKG}/.activities.VideoPlayerActivity -d \"fi
 def picker(): return amstart(f"-a android.intent.action.GET_CONTENT -t 'image/*' -c android.intent.category.OPENABLE -n {PKG}/.activities.MainActivity")
 
 
+def scan_file(path):
+    """adb push / rm do not touch MediaStore (the gallery lists from it): scan the file in / out (verified 2026-09-28)"""
+    sh(f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{path} >/dev/null 2>&1"); nap(1.5)
+
+
 def rec_start(name, secs):
     sh(f"rm -f /data/local/tmp/{name}.mp4")
     p = subprocess.Popen(["adb", "-s", S, "shell", f"screenrecord --bugreport --size {REC} --bit-rate 8000000 --time-limit {secs} /data/local/tmp/{name}.mp4"],
@@ -161,10 +166,36 @@ def run_one(scen, tag):
         sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check(); sh("logcat -b all -c")
         rp = rec_start(rec, 5); m["total"], m["launch"] = player(VIDEO); nap(3.2); m["rec"] = rec_pull(rp, rec)
         sh("input keyevent 4")
-    elif scen == "picker":
-        sh(f"am force-stop {PKG}"); home(); check(); sh("logcat -b all -c")
+    elif scen in ("picker", "pickerwarm"):
+        # another app's "choose a photo": the chooser starts MainActivity with GET_CONTENT (on this phone the implicit
+        # intent goes to Google's photo picker, so the explicit start is the chooser-tap path); warm = process alive
+        sh(f"am force-stop {PKG}"); home()
+        if scen == "pickerwarm": launcher_start(); nap(3); home()
+        check(); sh("logcat -b all -c")
         rp = rec_start(rec, 5); m["total"], m["launch"] = picker(); nap(3.2); m["rec"] = rec_pull(rp, rec)
         sh("input keyevent 4")
+    elif scen in ("phototap", "tapnew"):
+        # the instant-placeholder path: a real tap on the top-left tile of the Camera grid (CMP_PHOTO_TILE "x y"; tile
+        # centres come from a screencap since uiautomator is unusable on the 6 Pro).
+        #   phototap = the newest photo, which the warm-up and the photo scenario opened before (its screen-size image
+        #              is in Glide's disk cache: the placeholder only saves the black first frame)
+        #   tapnew   = a photo the gallery has never opened: a fresh copy of the test photo (EXIF stripped so it sorts
+        #              newest) pushed under a NEW name before the run and deleted after it. Glide keys on the path, so
+        #              the grid decodes its thumbnail into memory and the viewer's screen-size image is a cache miss.
+        sh(f"am force-stop {PKG}"); home()
+        if scen == "tapnew":
+            m["tap_file"] = f"cmp_tap_{tag}.jpg"
+            subprocess.run(["adb", "-s", S, "push", TAP_SRC, f"{CAM}/{m['tap_file']}"], capture_output=True)
+            sh(f"touch {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(2.0)
+        camera(); nap(3.5 if scen == "tapnew" else 2.5); check(); sh("logcat -b all -c")
+        rp = rec_start(rec, 5)
+        # one shell call: `input` is a Java tool (~90 ms to start), so the time AFTER it returns (it waits for the UP
+        # to be handled) is within a few ms of the touch release; the time before it is only kept for reference
+        w = sh(f"date +%H:%M:%S.%N; input -d 0 tap {PHOTO_TILE}; date +%H:%M:%S.%N").split()
+        m["tap_wall"], m["tap_done"] = (w[0], w[-1]) if len(w) >= 2 else (None, None)
+        nap(2.6); m["rec"] = rec_pull(rp, rec)
+        sh("input keyevent 4")
+        if scen == "tapnew": sh(f"rm -f {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
     elif scen == "scrollgrid":
         sh(f"am force-stop {PKG}"); home(); launcher_start(); nap(3); check(); gfx_reset(); flings(); m["gfx"] = gfx()
     elif scen == "scrollalbum":
@@ -196,25 +227,52 @@ def restore_data(tar):
 current_signer = [None]
 
 
+class InstallFailed(Exception): pass
+
+
+def installed_ver(): return sh(f"dumpsys package {PKG} | grep -m1 versionName").strip().split("=", 1)[-1]
+
+
+def ver_ok(build, v): return ("-fast" not in v) if build == ORIG_SIGNER else v.endswith("-" + build)
+
+
+def dismiss_play_protect():
+    """Play Protect's "Send app for a security check?" dialog (com.android.vending PlayProtectDialogsActivity) blocks
+    `pm install` until it is answered: on 2026-09-27/28 every fast11 install timed out that way, the previous build
+    stayed installed and was measured as fast11. verifier_verify_adb_installs=0 (set below) stops the dialog; this is
+    the fallback when it shows anyway."""
+    if "PlayProtectDialogsActivity" in sh("dumpsys window | grep mCurrentFocus="):
+        log("Play Protect dialog on screen: BACK"); sh("input keyevent 4"); time.sleep(1.5); return True
+    return False
+
+
 def install(build):
+    """install + VERIFY the installed versionName (orig = no -fast suffix, fastN = -fastN); 3 attempts, then InstallFailed"""
     apk = f"/data/local/tmp/cmp_{build}.apk"
     subprocess.run(["adb", "-s", S, "push", f"{APKS}/{build}.apk", apk], capture_output=True)
     signer = "orig" if build == ORIG_SIGNER else "fast"
     if current_signer[0] is None:
-        current_signer[0] = "fast" if "-fast" in sh(f"dumpsys package {PKG} | grep -m1 versionName") else "orig"
-    if signer != current_signer[0]:
-        old = current_signer[0]
-        save_data(f"/data/local/tmp/cmp_{old}data.tar", with_cache=(old == "orig"))
-        log("signer switch", old, "->", signer, sh(f"pm uninstall {PKG}").strip())
-        r = sh(f"pm install -g {apk}").strip(); perms()
-        sh(f"am start -W -n {LAUNCH} >/dev/null"); time.sleep(3); sh(f"am force-stop {PKG}")   # create data dir
-        tar = f"/data/local/tmp/cmp_{signer}data.tar"
-        if "No such" in sh(f"ls {tar}"): tar = f"/data/local/tmp/cmp_{old}data.tar"   # first time: same prefs/DB
-        restore_data(tar); perms(); current_signer[0] = signer
+        current_signer[0] = "fast" if "-fast" in installed_ver() else "orig"
+    v = installed_ver()
+    for attempt in range(1, 4):
+        if signer != current_signer[0]:
+            old = current_signer[0]
+            save_data(f"/data/local/tmp/cmp_{old}data.tar", with_cache=(old == "orig"))
+            log("signer switch", old, "->", signer, sh(f"pm uninstall {PKG}").strip())
+            r = sh(f"pm install -g {apk}", 120).strip(); perms()
+            sh(f"am start -W -n {LAUNCH} >/dev/null"); time.sleep(3); sh(f"am force-stop {PKG}")   # create data dir
+            tar = f"/data/local/tmp/cmp_{signer}data.tar"
+            if "No such" in sh(f"ls {tar}"): tar = f"/data/local/tmp/cmp_{old}data.tar"   # first time: same prefs/DB
+            restore_data(tar); perms(); current_signer[0] = signer
+        else:
+            r = su(f"pm install -r -d {apk}").strip()
+        v = installed_ver()
+        if ver_ok(build, v): break
+        log(f"install {build} attempt {attempt}: {r!r}, installed versionName={v}"); dismiss_play_protect(); time.sleep(2)
     else:
-        r = su(f"pm install -r -d {apk}").strip()
+        sh(f"rm -f {apk}"); raise InstallFailed(f"{build}: still versionName={v} after 3 attempts")
     sh(f"rm -f {apk}")
-    return r
+    return f"{r} versionName={v}"
 
 
 def prepare(build):
@@ -235,10 +293,15 @@ if not on or kg or not (foc and foc.startswith(LAUNCHER)):
     sh("input keyevent 3"); time.sleep(1.5); on, kg, foc = state()
     if not on or kg: log("NOT READY"); sys.exit(3)
 PHOTO = CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.jpg$'").strip()
+PHOTO_TILE = os.environ.get("CMP_PHOTO_TILE", "240 608")
+TAP_SRC = os.environ.get("CMP_TAP_SRC", os.path.expanduser("~/fg-cmp/cmp_tap.jpg"))   # tapnew: EXIF-less copy of the test photo
 VIDEO = os.environ.get("CMP_VIDEO") or (CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.mp4$'").strip())
 log("photo", PHOTO, "video", VIDEO)
 for dev in INPUTS: threading.Thread(target=input_watch, args=(dev,), daemon=True).start()
 time.sleep(1)
+# Play Protect asks "Send app for a security check?" for sideloaded builds and pm install blocks on the dialog
+VERIFY_PREV = sh("settings get global verifier_verify_adb_installs").strip()
+sh("settings put global verifier_verify_adb_installs 0")
 RES = f"{out}/cmp_results.json"
 results = json.load(open(RES)) if os.path.exists(RES) else []
 done = {(m["block"], m["scen"], m["run"]) for m in results}
@@ -247,7 +310,10 @@ try:
     for bi, (build, k) in enumerate(plan):
         if all((bi, sc, r) in done for sc in SCEN for r in range(k)): continue
         check()
-        log("install", build, install(build))
+        try: log("install", build, install(build))
+        except InstallFailed as e:      # keep a marker row so the table shows "n/a (install fails)" instead of dropping the build
+            log("INSTALL FAILED", e); results.append({"build": build, "block": bi, "run": 0, "scen": "install_failed", "err": str(e)})
+            json.dump(results, open(RES, "w"), indent=0); continue
         ver = sh(f"dumpsys package {PKG} | grep -m1 versionName").strip()
         log("prepare", build, ver, prepare(build))
         for r in range(k):
@@ -265,6 +331,7 @@ finally:
         try: p.terminate()
         except Exception: pass
     json.dump(results, open(RES, "w"), indent=0)
+    if VERIFY_PREV not in ("0", ""): sh(f"settings put global verifier_verify_adb_installs {VERIFY_PREV}")
     if not abort.is_set(): sh("input keyevent 3")
     log("runs saved", len(results), "virtual displays:", sh("dumpsys display | grep -c 'type VIRTUAL'").strip())
 sys.exit(rc)

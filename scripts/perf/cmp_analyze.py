@@ -99,6 +99,18 @@ def displayed(m, start):
 def body(f): return f[TOP:]
 
 
+def title_ocr(m):
+    """text of the viewer's title bar in the last frame (720x1560 recording: the toolbar text sits at y 105-155,
+    x 90-470, under the status bar + bugreport overlay; verified on a frame 2026-09-28)"""
+    from PIL import Image
+    try:
+        fr = decode(f"{d}/{m['rec']}", "crop=400:56:90:102", 400, 56)[-1]
+    except Exception: return ""
+    b = Image.fromarray(fr).resize((400 * 3, 56 * 3), Image.BICUBIC)
+    p = f"{d}/_title.png"; b.save(p)
+    return subprocess.run(["tesseract", p, "-", "--psm", "7"], capture_output=True, text=True).stdout.strip()
+
+
 GRID_TOP = int(H * .24)       # below the toolbar/search bar (bar ends ~20% down on the 6 Pro): "content" must be in the album/thumbnail area
 
 
@@ -134,7 +146,16 @@ def times(m, start, collect=False):
     return [(p - pts[ch]) * 1000 + anchor + lat for p in pts], im, "anchor"
 
 
-ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity"}
+ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity",
+       "phototap": "ViewPagerActivity"}
+
+
+def tap_rel(m, start):
+    """ms from the grid tap to START (device `date +%H:%M:%S.%N`, same clock as logcat), negative = tap before START.
+    tap_done = the time right after `input tap` returned (within a few ms of the touch release); older runs only have
+    tap_wall = before `input` started (~90 ms too early: the tool's own start-up)"""
+    mm = re.match(r"\d\d:\d\d:(\d\d)\.(\d{3})", m.get("tap_done") or m.get("tap_wall") or "")
+    return rel(int(mm.group(1)) + int(mm.group(2)) / 1000, start) if (mm and start is not None) else None
 
 
 def calibrate():
@@ -243,8 +264,19 @@ for m in R:
     elif s == "player":
         st0 = start_ss(m, "VideoPlayerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_player(m, st0))
         r["m_first_frame"] = fgperf(m, "player_first_frame", st0) if st0 else None
-    elif s == "picker":
+    elif s in ("picker", "pickerwarm"):
         st0 = start_ss(m); sp, sp_end = splash(m, st0); r["splash_ms"] = sp; r.update(visual_grid(m, st0, sp_end))
+        r["displayed"] = displayed(m, st0)
+    elif s in ("phototap", "tapnew"):
+        st0 = start_ss(m, "ViewPagerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_photo(m, st0))
+        r["displayed"] = displayed(m, st0); tp = tap_rel(m, st0); r["tap_to_start"] = None if tp is None else round(-tp, 1)
+        for k in ("first", "fullres", "displayed"):   # times since the TAP
+            r["tap_" + k] = round(r[k] - tp, 1) if (tp is not None and isinstance(r.get(k), (int, float))) else None
+        if s == "tapnew":   # the viewer's title bar must name the pushed copy, else the tap opened another photo
+            r["title"] = title_ocr(m); r["title_ok"] = "cmp" in r["title"].lower().replace(" ", "")
+            if not r["title_ok"]:
+                print("WARN tapnew opened another photo:", b, m.get("run"), repr(r["title"]), m.get("rec"))
+                for k in ("first", "fullres", "black_ms", "tap_first", "tap_fullres", "tap_displayed"): r[k] = None
     elif s.startswith("scroll"):
         g = m.get("gfx", {}); r = {k: float(v) for k, v in g.items() if v is not None}
     rows[(b, s)].append(r)
