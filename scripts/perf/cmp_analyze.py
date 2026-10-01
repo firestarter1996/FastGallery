@@ -137,7 +137,9 @@ def times(m, start, collect=False):
         lat = (t[ch] - anchor) if (ch is not None and anchor is not None) else None
         # sanity: the recording starts ~1 s before START and runs on after it; the first visible change must follow
         # its log line by a plausible screen latency (a consistent misread of one digit fails this)
-        if -4000 < t[0] < 0 < t[-1] and t[-1] > 500 and (lat is None or -20 <= lat <= 250):
+        # (t[-1] > 100, was > 500: with the status bar in demo mode its clock no longer forces a frame every second,
+        # so a recording ends with the last real screen change, which can be < 500 ms after START)
+        if -4000 < t[0] < 0 < t[-1] and t[-1] > 100 and (lat is None or -20 <= lat <= 250):
             if collect and lat is not None: LAT.append(lat)
             return t, im, "ocr"
         ocr_cache[os.path.basename(m['rec'])] = None
@@ -146,7 +148,7 @@ def times(m, start, collect=False):
     return [(p - pts[ch]) * 1000 + anchor + lat for p in pts], im, "anchor"
 
 
-ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity",
+ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "albumtap": "MediaActivity", "albumnew": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity",
        "phototap": "ViewPagerActivity"}
 
 
@@ -197,9 +199,17 @@ def visual_photo(m, start):
     band = im[:, int(H * .25):int(H * .75)]
     sq = im[:, int(H * .42):int(H * .58), int(W * .3):int(W * .7)]
     sw = None
-    for i in range(1, len(t)):
-        if t[i] > 1500 and np.abs(band[i] - band[i - 1]).mean() > 6 and np.abs(band[i - 1] - band[max(0, i - 8)]).mean() < 1.5:
-            sw = i; break
+    # the swipe: with the recorded swipe time (photo scenario) it is the first frame at/after it. screenrecord only
+    # emits a frame when the screen changes, so with the status bar in demo mode (no clock ticks) there are no
+    # frames between the settled photo and the swipe and the old "8 stable frames before it" test never matched.
+    swm = re.match(r"\d\d:\d\d:(\d\d)\.(\d{3})", m.get("swipe_wall") or "")
+    if swm:
+        sw_t = rel(int(swm.group(1)) + int(swm.group(2)) / 1000, start)
+        sw = next((i for i in range(1, len(t)) if t[i] >= sw_t), None)
+    else:
+        for i in range(1, len(t)):
+            if t[i] > 1500 and np.abs(band[i] - band[i - 1]).mean() > 6 and np.abs(band[i - 1] - band[max(0, i - 8)]).mean() < 1.5:
+                sw = i; break
     endi = sw if sw else len(t)
     fin_sq = sq[endi - 1]
     out = {}
@@ -258,6 +268,17 @@ for m in R:
     elif s in ("albumcold", "albumwarm"):
         st0 = start_ss(m, "MediaActivity"); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
         r.update(visual_grid(m, st0, sp_end))
+    elif s in ("albumtap", "albumnew"):
+        st0 = start_ss(m, "MediaActivity"); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
+        r.update(visual_grid(m, st0, sp_end))
+        r["displayed"] = displayed(m, st0); tp = tap_rel(m, st0); r["tap_to_start"] = None if tp is None else round(-tp, 1)
+        for k in ("content", "settled", "displayed"):   # times since the TAP
+            r["tap_" + k] = round(r[k] - tp, 1) if (tp is not None and isinstance(r.get(k), (int, float))) else None
+        # the tap must have opened the Camera album (FGPerf lines name the folder), else the tile moved
+        r["album_ok"] = int(any("FGPerf" in l and "DCIM/Camera" in l for l in m.get("logs", [])))
+        if not r["album_ok"]:
+            print("WARN albumtap opened another album:", b, m.get("run"), m.get("rec"))
+            for k in ("content", "settled", "blank_ms", "tap_content", "tap_settled", "tap_displayed"): r[k] = None
     elif s == "photo":
         st0 = start_ss(m, "ViewPagerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_photo(m, st0))
         r["m_fullres"] = fgperf(m, "photo_fullres_ready", st0) if st0 else None

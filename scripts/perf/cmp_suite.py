@@ -157,6 +157,25 @@ def run_one(scen, tag):
         if scen == "albumwarm": launcher_start(); nap(3)
         check(); sh("logcat -b all -c")
         rp = rec_start(rec, 5); m["total"], m["launch"] = camera(); nap(3.2); m["rec"] = rec_pull(rp, rec)
+    elif scen in ("albumtap", "albumnew"):
+        # the real album open: a tap on the Camera tile of the main grid (CMP_ALBUM_TILE "x y"), gallery warm.
+        #   albumtap = nothing changed in the album since it was last opened (its saved first screens are valid): the
+        #              album is opened once first, in a process that is then stopped, so the snapshot is current
+        #   albumnew = a new photo landed in the album since (pushed + media-scanned before the gallery starts): the
+        #              "took a photo, open the gallery, open Camera" case, no valid snapshot
+        if scen == "albumtap":
+            camera(); nap(3.5)
+        sh(f"am force-stop {PKG}"); home()
+        if scen == "albumnew":
+            m["tap_file"] = f"cmp_new_{tag}.jpg"
+            subprocess.run(["adb", "-s", S, "push", TAP_SRC, f"{CAM}/{m['tap_file']}"], capture_output=True)
+            sh(f"touch {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
+        launcher_start(); nap(3); check(); sh("logcat -b all -c")
+        rp = rec_start(rec, 5)
+        w = sh(f"date +%H:%M:%S.%N; input -d 0 tap {ALBUM_TILE}; date +%H:%M:%S.%N").split()
+        m["tap_wall"], m["tap_done"] = (w[0], w[-1]) if len(w) >= 2 else (None, None)
+        nap(3.0); m["rec"] = rec_pull(rp, rec)
+        if scen == "albumnew": sh(f"rm -f {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
     elif scen == "photo":
         sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check(); sh("logcat -b all -c")
         rp = rec_start(rec, 8); m["total"], m["launch"] = viewer(PHOTO); nap(2.4); check()
@@ -233,7 +252,7 @@ class InstallFailed(Exception): pass
 def installed_ver(): return sh(f"dumpsys package {PKG} | grep -m1 versionName").strip().split("=", 1)[-1]
 
 
-def ver_ok(build, v): return ("-fast" not in v) if build == ORIG_SIGNER else v.endswith("-" + build)
+def ver_ok(build, v): return bool(re.fullmatch(r"[\d.]+", v)) if build == ORIG_SIGNER else v.endswith("-" + build)
 
 
 def dismiss_play_protect():
@@ -246,8 +265,18 @@ def dismiss_play_protect():
     return False
 
 
-def install(build):
+def set_flags(spec):
+    """plan names may carry A/B flag files: "o13d+perf_no_viewer_preload" installs o13d.apk and creates
+    files/perf_no_viewer_preload; every other files/perf_* flag is removed, so a plain name runs with none"""
+    flags = spec.split("+")[1:]
+    d = f"/data/data/{PKG}/files"
+    su(f"rm -f {d}/perf_*; " + " ".join(f"touch {d}/{f};" for f in flags) + f" ls {d} | grep -c perf_")
+    return flags
+
+
+def install(spec):
     """install + VERIFY the installed versionName (orig = no -fast suffix, fastN = -fastN); 3 attempts, then InstallFailed"""
+    build = spec.split("+")[0]
     # 2026-09-30: /data on the 6 Pro had ~120 MB free. The APK is streamed into pm (no copy in /data/local/tmp) and
     # sys_storage_threshold_max_bytes is lowered for the run (see LOWSTORE below), else pm refuses with
     # "Failed to free 563712089 on storage device" (= its 500 MB reserve + the APK size).
@@ -259,7 +288,10 @@ def install(build):
         return (p.stdout + p.stderr).strip()
     signer = "orig" if build == ORIG_SIGNER else "fast"
     if current_signer[0] is None:
-        current_signer[0] = "fast" if "-fast" in installed_ver() else "orig"
+        # upstream = a bare version ("1.13.1"); every FastGallery build has a suffix ("-fast12", "-o13a", ...). The old
+        # test ('"-fast" in version') took a FastGallery build named 1.13.1-o13a for the upstream signer on 2026-09-30:
+        # needless uninstall + data transplant, and the data tar (with the 462 MB thumbnail cache) filled the disk.
+        current_signer[0] = "orig" if re.fullmatch(r"[\d.]+", installed_ver()) else "fast"
     v = installed_ver()
     for attempt in range(1, 4):
         if signer != current_signer[0]:
@@ -300,6 +332,7 @@ if not on or kg or not (foc and foc.startswith(LAUNCHER)):
     if not on or kg: log("NOT READY"); sys.exit(3)
 PHOTO = CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.jpg$'").strip()
 PHOTO_TILE = os.environ.get("CMP_PHOTO_TILE", "240 608")
+ALBUM_TILE = os.environ.get("CMP_ALBUM_TILE", "1080 780")     # the Camera tile of the main grid on the 6 Pro (2nd tile, 2026-09-30)
 TAP_SRC = os.environ.get("CMP_TAP_SRC", os.path.expanduser("~/fg-cmp/cmp_tap.jpg"))   # tapnew: EXIF-less copy of the test photo
 VIDEO = os.environ.get("CMP_VIDEO") or (CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.mp4$'").strip())
 log("photo", PHOTO, "video", VIDEO)
@@ -311,6 +344,17 @@ sh("settings put global verifier_verify_adb_installs 0")
 # nearly full /data: let pm install with less than its 500 MB reserve free; the key is deleted again in the finally block
 LOWSTORE_PREV = sh("settings get global sys_storage_threshold_max_bytes").strip()
 sh("settings put global sys_storage_threshold_max_bytes 10485760")
+# status-bar demo mode for the run: notification icons sit right under the bugreport overlay's milliseconds and made
+# the OCR fail on most recordings (2026-09-30: 4 of 5 tapnew runs fell back to the Displayed anchor). Demo mode hides
+# them (the thin clock stays and is stripped by the analyzer's 3x3 opening); it only changes how the status bar looks.
+DEMO_PREV = sh("settings get global sysui_demo_allowed").strip()
+DEMO = "am broadcast -a com.android.systemui.demo -e command"
+sh(f"settings put global sysui_demo_allowed 1; {DEMO} enter >/dev/null; {DEMO} notifications -e visible false >/dev/null; "
+   f"{DEMO} status -e volume hide -e location hide -e alarm hide -e mute hide >/dev/null")
+# no heads-up notifications during the run: on 2026-09-30 a Telegram heads-up slid in under the tapnew tap, the tap
+# opened Telegram instead of the photo and the run was lost (restored in the finally block)
+HEADSUP_PREV = sh("settings get global heads_up_notifications_enabled").strip()
+sh("settings put global heads_up_notifications_enabled 0")
 RES = f"{out}/cmp_results.json"
 results = json.load(open(RES)) if os.path.exists(RES) else []
 done = {(m["block"], m["scen"], m["run"]) for m in results}
@@ -319,7 +363,7 @@ try:
     for bi, (build, k) in enumerate(plan):
         if all((bi, sc, r) in done for sc in SCEN for r in range(k)): continue
         check()
-        try: log("install", build, install(build))
+        try: log("install", build, install(build), "flags", set_flags(build))
         except InstallFailed as e:      # keep a marker row so the table shows "n/a (install fails)" instead of dropping the build
             log("INSTALL FAILED", e); results.append({"build": build, "block": bi, "run": 0, "scen": "install_failed", "err": str(e)})
             json.dump(results, open(RES, "w"), indent=0); continue
@@ -341,8 +385,12 @@ finally:
         except Exception: pass
     json.dump(results, open(RES, "w"), indent=0)
     if VERIFY_PREV not in ("0", ""): sh(f"settings put global verifier_verify_adb_installs {VERIFY_PREV}")
+    sh(f"{DEMO} exit >/dev/null; settings put global sysui_demo_allowed {DEMO_PREV if DEMO_PREV in ('0', '1') else '0'}")
+    if HEADSUP_PREV in ("null", ""): sh("settings delete global heads_up_notifications_enabled")
+    else: sh(f"settings put global heads_up_notifications_enabled {HEADSUP_PREV}")
     if LOWSTORE_PREV in ("null", ""): sh("settings delete global sys_storage_threshold_max_bytes")
     else: sh(f"settings put global sys_storage_threshold_max_bytes {LOWSTORE_PREV}")
+    su(f"rm -f /data/data/{PKG}/files/perf_*")
     if not abort.is_set(): sh("input keyevent 3")
     log("runs saved", len(results), "virtual displays:", sh("dumpsys display | grep -c 'type VIRTUAL'").strip())
 sys.exit(rc)
