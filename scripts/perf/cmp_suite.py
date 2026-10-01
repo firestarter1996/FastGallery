@@ -248,8 +248,15 @@ def dismiss_play_protect():
 
 def install(build):
     """install + VERIFY the installed versionName (orig = no -fast suffix, fastN = -fastN); 3 attempts, then InstallFailed"""
-    apk = f"/data/local/tmp/cmp_{build}.apk"
-    subprocess.run(["adb", "-s", S, "push", f"{APKS}/{build}.apk", apk], capture_output=True)
+    # 2026-09-30: /data on the 6 Pro had ~120 MB free. The APK is streamed into pm (no copy in /data/local/tmp) and
+    # sys_storage_threshold_max_bytes is lowered for the run (see LOWSTORE below), else pm refuses with
+    # "Failed to free 563712089 on storage device" (= its 500 MB reserve + the APK size).
+    local_apk = f"{APKS}/{build}.apk"; size = os.path.getsize(local_apk)
+
+    def stream(flags):
+        with open(local_apk, "rb") as f:
+            p = subprocess.run(["adb", "-s", S, "shell", f"su -c 'pm install {flags} -S {size}'"], stdin=f, capture_output=True, text=True, timeout=300)
+        return (p.stdout + p.stderr).strip()
     signer = "orig" if build == ORIG_SIGNER else "fast"
     if current_signer[0] is None:
         current_signer[0] = "fast" if "-fast" in installed_ver() else "orig"
@@ -259,19 +266,18 @@ def install(build):
             old = current_signer[0]
             save_data(f"/data/local/tmp/cmp_{old}data.tar", with_cache=(old == "orig"))
             log("signer switch", old, "->", signer, sh(f"pm uninstall {PKG}").strip())
-            r = sh(f"pm install -g {apk}", 120).strip(); perms()
+            r = stream("-g"); perms()
             sh(f"am start -W -n {LAUNCH} >/dev/null"); time.sleep(3); sh(f"am force-stop {PKG}")   # create data dir
             tar = f"/data/local/tmp/cmp_{signer}data.tar"
             if "No such" in sh(f"ls {tar}"): tar = f"/data/local/tmp/cmp_{old}data.tar"   # first time: same prefs/DB
             restore_data(tar); perms(); current_signer[0] = signer
         else:
-            r = su(f"pm install -r -d {apk}").strip()
+            r = stream("-r -d")
         v = installed_ver()
         if ver_ok(build, v): break
         log(f"install {build} attempt {attempt}: {r!r}, installed versionName={v}"); dismiss_play_protect(); time.sleep(2)
     else:
-        sh(f"rm -f {apk}"); raise InstallFailed(f"{build}: still versionName={v} after 3 attempts")
-    sh(f"rm -f {apk}")
+        raise InstallFailed(f"{build}: still versionName={v} after 3 attempts")
     return f"{r} versionName={v}"
 
 
@@ -302,6 +308,9 @@ time.sleep(1)
 # Play Protect asks "Send app for a security check?" for sideloaded builds and pm install blocks on the dialog
 VERIFY_PREV = sh("settings get global verifier_verify_adb_installs").strip()
 sh("settings put global verifier_verify_adb_installs 0")
+# nearly full /data: let pm install with less than its 500 MB reserve free; the key is deleted again in the finally block
+LOWSTORE_PREV = sh("settings get global sys_storage_threshold_max_bytes").strip()
+sh("settings put global sys_storage_threshold_max_bytes 10485760")
 RES = f"{out}/cmp_results.json"
 results = json.load(open(RES)) if os.path.exists(RES) else []
 done = {(m["block"], m["scen"], m["run"]) for m in results}
@@ -332,6 +341,8 @@ finally:
         except Exception: pass
     json.dump(results, open(RES, "w"), indent=0)
     if VERIFY_PREV not in ("0", ""): sh(f"settings put global verifier_verify_adb_installs {VERIFY_PREV}")
+    if LOWSTORE_PREV in ("null", ""): sh("settings delete global sys_storage_threshold_max_bytes")
+    else: sh(f"settings put global sys_storage_threshold_max_bytes {LOWSTORE_PREV}")
     if not abort.is_set(): sh("input keyevent 3")
     log("runs saved", len(results), "virtual displays:", sh("dumpsys display | grep -c 'type VIRTUAL'").strip())
 sys.exit(rc)
