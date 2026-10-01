@@ -178,12 +178,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
-        // fast13: the first screen's thumbnails start loading into memory now, so the tiles get them when they are
-        // bound instead of one frame later (no-op when the album tap in MainActivity already started it)
-        if (savedInstanceState == null && canUseMediaSnapshot()) {
-            org.fossify.gallery.helpers.AlbumThumbs.prewarm(this, mPath)
-        }
-
         setupOptionsMenu()
         refreshMenuItems()
         storeStateVariables()

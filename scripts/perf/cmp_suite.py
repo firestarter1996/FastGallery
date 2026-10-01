@@ -115,7 +115,7 @@ def rec_pull(p, name):
 
 def logs():
     """wall-clock (threadtime) lines: START, Displayed, splash window, FGPerf"""
-    return sh("logcat -d -b all -v threadtime | grep -E 'START u0|Displayed|Splash Screen org.fossify.gallery|FGPerf'", 30).splitlines()
+    return sh("logcat -d -b all -v threadtime | grep -E 'START u0|Displayed|Splash Screen org.fossify.gallery|FGPerf|AndroidRuntime: |ANR in org.fossify'", 30).splitlines()
 
 
 def gfx_reset(): sh(f"dumpsys gfxinfo {PKG} reset >/dev/null")
@@ -172,7 +172,8 @@ def run_one(scen, tag):
             sh(f"touch {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
         launcher_start(); nap(3); check(); sh("logcat -b all -c")
         rp = rec_start(rec, 5)
-        w = sh(f"date +%H:%M:%S.%N; input -d 0 tap {ALBUM_TILE}; date +%H:%M:%S.%N").split()
+        # with a new photo Camera is the newest album and moves to the first tile
+        w = sh(f"date +%H:%M:%S.%N; input -d 0 tap {ALBUM_TILE_NEW if scen == 'albumnew' else ALBUM_TILE}; date +%H:%M:%S.%N").split()
         m["tap_wall"], m["tap_done"] = (w[0], w[-1]) if len(w) >= 2 else (None, None)
         nap(3.0); m["rec"] = rec_pull(rp, rec)
         if scen == "albumnew": sh(f"rm -f {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
@@ -332,6 +333,7 @@ if not on or kg or not (foc and foc.startswith(LAUNCHER)):
     if not on or kg: log("NOT READY"); sys.exit(3)
 PHOTO = CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.jpg$'").strip()
 PHOTO_TILE = os.environ.get("CMP_PHOTO_TILE", "240 608")
+ALBUM_TILE_NEW = os.environ.get("CMP_ALBUM_TILE_NEW", "360 780")
 ALBUM_TILE = os.environ.get("CMP_ALBUM_TILE", "1080 780")     # the Camera tile of the main grid on the 6 Pro (2nd tile, 2026-09-30)
 TAP_SRC = os.environ.get("CMP_TAP_SRC", os.path.expanduser("~/fg-cmp/cmp_tap.jpg"))   # tapnew: EXIF-less copy of the test photo
 VIDEO = os.environ.get("CMP_VIDEO") or (CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.mp4$'").strip())

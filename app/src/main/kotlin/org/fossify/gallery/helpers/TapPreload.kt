@@ -9,20 +9,19 @@ import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import org.fossify.commons.extensions.isPathOnOTG
-import org.fossify.commons.helpers.VIEW_TYPE_LIST
-import org.fossify.gallery.extensions.buildThumbnailRequest
-import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Medium
-import org.fossify.gallery.models.ThumbnailItem
 import java.io.File
 
 /**
  * FastGallery (fast13): start loading at the tap, not when the next screen binds its views.
  *
- * Both helpers issue the exact Glide request the next screen is about to make (same model, signature, size,
- * transformation and options, so the same engine key) as a preload on the application's request manager. The result
- * lands in Glide's memory cache; the screen's own request then either finds it there (delivered synchronously, in its
- * first frame) or joins the decode that is already running.
+ * [preload] issues the exact Glide request the viewer is about to make (same model, signature, size, transformation
+ * and options, so the same engine key) as a preload on the application's request manager. The result lands in Glide's
+ * memory cache; the viewer's own request then either finds it there (delivered synchronously, in its first frame) or
+ * joins the decode that is already running.
+ *
+ * (The same idea for an album's first-screen thumbnails was measured and dropped: 10 runs each way on the 6 Pro,
+ * thumbnails on screen 127 vs 127 ms, settled 160 vs 161 ms.)
  */
 object ViewerImage {
     private const val PREFS = "viewer_size"
@@ -87,51 +86,6 @@ object ViewerImage {
             val (width, height) = size(app) ?: return
             Glide.with(app).load(medium.path).apply(options(medium, Priority.IMMEDIATE)).preload(width, height)
             PerfTrace.mark("viewer_preload", "${width}x$height ${medium.name}")
-        } catch (ignored: Exception) {
-        }
-    }
-}
-
-object AlbumThumbs {
-    private const val MAX_TILES = 60
-    private var lastPath = ""
-    private var lastAt = 0L
-
-    /** A/B switch: files/perf_no_thumb_prewarm */
-    fun isDisabled(context: Context) = File(context.filesDir, "perf_no_thumb_prewarm").exists()
-
-    /**
-     * Loads the thumbnails of an album's first screen into Glide's memory cache, from the album's saved first screens
-     * ([MediaSnapshot]). Called when an album is tapped and again at the top of MediaActivity.onCreate (other entry
-     * points); the second call within a second is skipped. Main thread, ~1 ms plus one request per tile.
-     */
-    fun prewarm(context: Context, path: String, snapshot: List<ThumbnailItem>? = null) {
-        try {
-            val app = context.applicationContext
-            if (path.isEmpty() || isDisabled(app) || MediaSnapshot.isDisabled(app)) return
-            val now = android.os.SystemClock.uptimeMillis()
-            if (path == lastPath && now - lastAt < 1000) return
-            val config = app.config
-            if (config.showAll || config.isFolderProtected(path) || config.scrollHorizontally) return
-            if (config.getFolderViewType(path) == VIEW_TYPE_LIST) return
-            val spec = ThumbSizes.get(app, "media:$path") ?: return
-            if (spec.width <= 0 || spec.height <= 0) return
-            val items = snapshot ?: MediaSnapshot.read(app, path) ?: return
-            lastPath = path
-            lastAt = now
-            val screenHeight = app.resources.displayMetrics.heightPixels
-            val columns = (app.resources.displayMetrics.widthPixels / spec.width).coerceAtLeast(1)
-            val tiles = (columns * (screenHeight / spec.height + 1)).coerceAtMost(MAX_TILES)
-            var count = 0
-            for (item in items) {
-                val medium = item as? Medium ?: continue
-                if (count >= tiles) break
-                count++
-                if (medium.isSVG()) continue
-                app.buildThumbnailRequest(medium.path, spec.crop, spec.round, medium.getKey(), animate = spec.animate)
-                    .preload(spec.width, spec.height)
-            }
-            PerfTrace.mark("thumb_prewarm", "n=$count ${spec.width}x${spec.height} $path")
         } catch (ignored: Exception) {
         }
     }
