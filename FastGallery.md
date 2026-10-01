@@ -171,3 +171,62 @@ vs orig     +0%     0%    +1%
 - Scripts: `scripts/perf/cmp_suite.py` (records), `cmp_analyze.py` (measures), `cmp_table.py` (renders these blocks, <= 44 chars wide). Runs: ~/fg-cmp/all (v1, fast11 discarded), all2 (warm picker + phototap, fast11 discarded), v2fast11, v2tap (tapnew + phototap, all builds), v2ctrl (fast11 scroll/PSS), v2ab_on / v2ab_off (fast12 placeholder flag A/B, 3 runs each).
 - Unchanged across builds: warm launch 26–31 ms, album open 176–223, cold into Camera 302–338, photo first picture 165–177, scroll p99 11–12 ms, memory 187–203 MB.
 - Result: fast12 still wins (video 191/65 → 135/0, picker black/splash → 0, picker albums -27 % cold / -50 % warm); the instant placeholder is the one shipped feature with no measurable screen effect.
+
+# fast13 (branch opus-speed, 2026-09-30, not released)
+
+Measured on the same Pixel 6 Pro, real screen, fast12 and fast13 installed in turn in one session
+(fast12 x3, fast13 x3, fast12 x2, fast13 x2), 5 runs per build, medians in ms, lowest and highest run in brackets.
+
+```
+metric              fast12       fast13
+tap, new photo
+ picture     225 [218..232] 146 [146..161]
+ sharp       225 [218..232] 164 [163..176]
+ black        84   [66..86]   0     [0..0]
+album, new photo
+ thumbnails 1666 [1653..1677] 129 [116..151]
+ settled    1767 [1760..1794] 273 [263..302]
+```
+
+- tap, new photo = grid tap on a photo the gallery never opened (scenario `tapnew`), times since the tap. picture = first frame with the picture (the placeholder counts), sharp = last refinement, black = black between grid and picture.
+- album, new photo = a photo lands in Camera, the gallery is started, Camera is tapped (new scenario `albumnew`), times since the tap.
+
+What changed:
+
+1. The instant placeholder is really set. `showInstantPlaceholder()` runs inside `onCreateView`, where `Fragment.getView()` is still null, so its `view != null` guard dropped the thumbnail on every tap since fast11.
+2. The viewer's screen sized image starts decoding at the tap (`ViewerImage.preload` in `MediaActivity.openInViewPager`, same Glide key as the viewer's own request, A/B flag `files/perf_no_viewer_preload`). Sharp image 227 to 173 ms with the flag off and on, 5 runs each on one APK.
+3. The codec prewarm of fast12 slept 1.5 s on the album's loader thread (`ensureBackgroundThread` runs inline off the main thread), once per process, for any album with videos. With a valid first screen snapshot the grid looked fine and only the full list came late; without one (a new photo in the album) the grid stayed empty for 1.5 s. It has its own thread now.
+
+Unchanged within run to run noise (same session, 5 runs each): cold launch 173 / 178, albums on screen 207 / 214, warm launch 29 / 29, album open by tap 145 / 121 (143 / 142 in the run before), tap on an already opened photo 170 / 161, viewer by intent 167 / 178 (163 / 171 and 175 / 165 in other runs), video 136 / 127, picker cold 206 / 207, picker warm 99 / 103, scroll p99 12 / 12 and 15 / 15, PSS 215 / 212 MB. Final screens of every scenario match fast12 (`cmp_regress.py`), no crash or ANR in 140 runs.
+
+Tried and dropped (no gain beyond noise):
+
+- Pager pages set before the first layout pass: tap picture 157 vs 158 ms (4 and 4 runs).
+- Album first screen thumbnails preloaded at the album tap: thumbnails on screen 127 vs 127, settled 161 vs 160 (10 and 10 runs).
+- Explicit size on the viewer's own request (starts before layout): sharp image 174 vs 174, and the viewer's first frame came later for cached photos (171 vs 164, TotalTime 77.5 vs 68; 10 runs each).
+
+Suite changes (scripts/perf): installs are streamed into pm and `sys_storage_threshold_max_bytes` is lowered for the run (the phone had about 80 MB free), status bar demo mode and no heads up notifications during a run (both restored at the end; the notification icons broke the overlay OCR and a heads up swallowed a tap), plan names may carry flag files (`fast13+perf_no_viewer_preload:3`), new scenarios `albumtap` and `albumnew`, `cmp_spread.py` (every run's value), `cmp_regress.py` (final screens A vs B), `cmp_strip.py` (frames side by side).
+
+Rebuild and measure again:
+
+```
+cd ~/fossify-gallery-opus-speed
+flock ~/.gradle-claude.lock ~/bin/memcap 8G \
+  ./gradlew assembleFossRelease --no-daemon -q
+# APK: app/build/outputs/apk/foss/release/
+#      gallery-2813-foss-release.apk
+# copy it to <apks>/fast13.apk, fast12.apk
+# next to it, then (phone unlocked, launcher):
+CMP_APKS=<apks> FG_SERIAL=192.168.1.69:5555 \
+ CMP_VIDEO=/storage/emulated/0/DCIM/Camera/\
+PXL_20260428_101322367.TS.mp4 \
+ python3 scripts/perf/cmp_suite.py <out> \
+ fast12:3,fast13:3,fast12:2,fast13:2 \
+ gridcold,gridwarm,albumcold,albumwarm,\
+albumtap,photo,player,picker,pickerwarm,\
+phototap,albumnew,tapnew,scrollgrid,scrollalbum
+python3 scripts/perf/cmp_analyze.py <out>
+python3 scripts/perf/cmp_spread.py <out>
+python3 scripts/perf/cmp_regress.py <out> \
+ fast12 fast13
+```
