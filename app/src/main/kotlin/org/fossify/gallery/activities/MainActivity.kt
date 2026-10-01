@@ -1164,6 +1164,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun itemClicked(path: String) {
         handleLockedFolderOpening(path) { success ->
             if (success) {
+                // fast13: the album's first-screen thumbnails start loading at the tap
+                if (!mIsThirdPartyIntent) org.fossify.gallery.helpers.AlbumThumbs.prewarm(this, path)
                 Intent(this, MediaActivity::class.java).apply {
                     putExtra(SKIP_AUTHENTICATION, true)
                     putExtra(DIRECTORY, path)

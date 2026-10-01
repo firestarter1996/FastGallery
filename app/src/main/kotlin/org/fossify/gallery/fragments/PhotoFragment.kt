@@ -134,6 +134,9 @@ class PhotoFragment : ViewPagerFragment() {
     private var mOrientationKnown = false     // fast11: the EXIF read now runs in parallel with the Glide load
     private var mScreenImageReady = false
     private var mPlaceholder: Drawable? = null
+    private var mRequestedSize: Pair<Int, Int>? = null   // fast13: the explicit size of the running Glide request
+    private var mLoadedPath: String? = null
+    private var mLoadedWithZoomableView = true
 
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
@@ -188,6 +191,21 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             setupGesturesViewStateListener()
+            // fast13: remember the image view's size for the next viewer; if this load was started with a stale one
+            // (first run on this screen size, split screen, rotation) start it again with the real size
+            gesturesView.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+                val width = right - left
+                val height = bottom - top
+                if (width > 0 && height > 0 && activity != null) {
+                    org.fossify.gallery.helpers.ViewerImage.record(context, width, height)
+                    val requested = mRequestedSize
+                    val path = mLoadedPath
+                    if (requested != null && path != null && (requested.first != width || requested.second != height)) {
+                        mRequestedSize = null
+                        gesturesView.post { if (activity != null && mLoadedPath == path) loadWithGlide(path, mLoadedWithZoomableView) }
+                    }
+                }
+            }
             gesturesView.setOnTouchListener { v, event ->
                 val allowDownGesture = context.config.allowDownGesture
                 if (allowDownGesture && abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
@@ -546,12 +564,7 @@ class PhotoFragment : ViewPagerFragment() {
 
     private fun loadWithGlide(path: String, addZoomableView: Boolean) {
         val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
-        val options = RequestOptions()
-            .signature(mMedium.getKey())
-            .format(DecodeFormat.PREFER_ARGB_8888)
-            .priority(priority)
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-            .fitCenter()
+        val options = org.fossify.gallery.helpers.ViewerImage.options(mMedium, priority)
             .placeholder(mPlaceholder)
             .run {
                 if (mCurrentRotationDegrees != 0) {
@@ -562,9 +575,23 @@ class PhotoFragment : ViewPagerFragment() {
                 }
             }
 
+        // fast13: with only the view as its target Glide waits for the first layout pass before it even starts (the
+        // view has no size yet), ~20-30 ms after the fragment is created. The image view's size is the same every time
+        // on a given screen, so it is remembered and passed as an explicit size: the load starts right here, with the
+        // same cache key as before, and matches the preload MediaActivity started when the photo was tapped.
+        val viewerSize = org.fossify.gallery.helpers.ViewerImage
+        mRequestedSize = when {
+            viewerSize.isDisabled(requireContext()) -> null
+            binding.gesturesView.width > 0 && binding.gesturesView.height > 0 -> Pair(binding.gesturesView.width, binding.gesturesView.height)
+            else -> viewerSize.size(requireContext())
+        }
+        mLoadedPath = path
+        mLoadedWithZoomableView = addZoomableView
+
         Glide.with(requireContext())
             .load(path)
             .apply(options)
+            .run { mRequestedSize?.let { override(it.first, it.second) } ?: this }
             .listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
                     resetColorModeIfVisible()

@@ -178,6 +178,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
+        // fast13: the first screen's thumbnails start loading into memory now, so the tiles get them when they are
+        // bound instead of one frame later (no-op when the album tap in MainActivity already started it)
+        if (savedInstanceState == null && canUseMediaSnapshot()) {
+            org.fossify.gallery.helpers.AlbumThumbs.prewarm(this, mPath)
+        }
+
         setupOptionsMenu()
         refreshMenuItems()
         storeStateVariables()
@@ -1022,6 +1028,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun openInViewPager(path: String) {
+        // fast13: the viewer's screen-sized image starts decoding now, not ~70 ms later when its page is laid out
+        (mMedia.firstOrNull { it is Medium && it.path == path } as? Medium)?.let {
+            org.fossify.gallery.helpers.ViewerImage.preload(this, it)
+        }
         Intent(this, ViewPagerActivity::class.java).apply {
             putExtra(SKIP_AUTHENTICATION, shouldSkipAuthentication())
             putExtra(PATH, path)
