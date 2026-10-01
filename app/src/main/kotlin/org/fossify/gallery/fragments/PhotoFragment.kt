@@ -191,8 +191,9 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             setupGesturesViewStateListener()
-            // fast13: remember the image view's size for the next viewer; if this load was started with a stale one
-            // (first run on this screen size, split screen, rotation) start it again with the real size
+            // fast13: remember the image view's size for the next viewer. If this page's load was started with a stale
+            // size (the remembered one came from split screen, say) and has not delivered yet, start it again with
+            // the real size. A finished image is left alone, exactly as before (a rotation never reloads it).
             gesturesView.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
                 val width = right - left
                 val height = bottom - top
@@ -202,7 +203,11 @@ class PhotoFragment : ViewPagerFragment() {
                     val path = mLoadedPath
                     if (requested != null && path != null && (requested.first != width || requested.second != height)) {
                         mRequestedSize = null
-                        gesturesView.post { if (activity != null && mLoadedPath == path) loadWithGlide(path, mLoadedWithZoomableView) }
+                        if (!mScreenImageReady) {
+                            gesturesView.post {
+                                if (activity != null && mLoadedPath == path && !mScreenImageReady) loadWithGlide(path, mLoadedWithZoomableView)
+                            }
+                        }
                     }
                 }
             }
