@@ -20,8 +20,9 @@ import java.io.File
  * memory cache; the viewer's own request then either finds it there (delivered synchronously, in its first frame) or
  * joins the decode that is already running.
  *
- * (The same idea for an album's first-screen thumbnails was measured and dropped: 10 runs each way on the 6 Pro,
- * thumbnails on screen 127 vs 127 ms, settled 160 vs 161 ms.)
+ * Measured and dropped (Pixel 6 Pro, 10 interleaved runs each way): the same idea for an album's first-screen
+ * thumbnails (on screen 127 vs 127 ms), and an explicit size on the viewer's own request so it starts before the
+ * first layout pass (no gain for a never-opened photo, and the viewer's first frame came ~7 ms later for a cached one).
  */
 object ViewerImage {
     private const val PREFS = "viewer_size"
@@ -30,7 +31,7 @@ object ViewerImage {
     @Volatile
     private var cachedSize: Pair<Int, Int>? = null
 
-    /** A/B switch: files/perf_no_viewer_preload = the viewer loads as before fast13 (size from layout, no tap preload). */
+    /** A/B switch: files/perf_no_viewer_preload = no preload at the tap (the viewer loads as before fast13). */
     fun isDisabled(context: Context) = File(context.filesDir, "perf_no_viewer_preload").exists()
 
     /** the options of the viewer's screen-sized image; PhotoFragment adds its placeholder and listener */
