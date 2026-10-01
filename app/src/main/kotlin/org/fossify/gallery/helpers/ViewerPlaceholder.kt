@@ -25,7 +25,7 @@ import kotlin.math.min
  * rescales when the full image replaces it, the edges just fill in.
  */
 class ViewerPlaceholderDrawable(
-    private val bitmap: Bitmap,
+    val bitmap: Bitmap,
     private val fullWidth: Int,
     private val fullHeight: Int,
     private val cropped: Boolean

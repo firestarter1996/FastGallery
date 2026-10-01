@@ -453,7 +453,14 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
-    /** fast11: the grid thumbnail the user tapped, drawn at the photo's size until the screen-sized image is decoded */
+    /**
+     * fast11: the grid thumbnail the user tapped, drawn at the photo's size until the screen-sized image is decoded.
+     *
+     * fast13: it never reached the screen. This runs inside onCreateView, and Fragment.getView() is null until
+     * onCreateView has returned, so the old `view != null` guard threw the (synchronously delivered) thumbnail away:
+     * nothing was set on the image view, mPlaceholder stayed null and Glide cleared the view when the load started.
+     * The guard is the binding now; the drawable goes onto the view and to Glide as the request's placeholder.
+     */
     private fun showInstantPlaceholder() {
         val activity = activity as? ViewPagerActivity ?: return
         if (activity.instantPlaceholderUsed || activity.intent.getStringExtra(PATH) != mMedium.path) return
@@ -461,9 +468,10 @@ class PhotoFragment : ViewPagerFragment() {
         if (java.io.File(requireContext().filesDir, "perf_no_viewer_placeholder").exists()) return
         activity.instantPlaceholderUsed = true
         ViewerPlaceholder.load(requireContext(), mMedium) { placeholder ->
-            if (!mScreenImageReady && view != null) {
+            if (!mScreenImageReady && this::binding.isInitialized) {
                 mPlaceholder = placeholder
                 binding.gesturesView.setImageDrawable(placeholder)
+                org.fossify.gallery.helpers.PerfTrace.mark("photo_placeholder_set", mMedium.name)
             }
         }
     }
@@ -1020,7 +1028,10 @@ class PhotoFragment : ViewPagerFragment() {
         if (mIsFragmentVisible && activity != null) {
             ColorModeHelper.setColorModeForImage(
                 activity = requireActivity(),
-                bitmap = (resource as? BitmapDrawable)?.bitmap ?: resource?.toBitmapOrNull(),
+                // fast13: the placeholder reports the photo's full size, toBitmapOrNull() would render a full-size copy
+                bitmap = (resource as? BitmapDrawable)?.bitmap
+                    ?: (resource as? org.fossify.gallery.helpers.ViewerPlaceholderDrawable)?.bitmap
+                    ?: resource?.toBitmapOrNull(),
                 ultraHdr = context?.config?.ultraHdrRendering ?: true
             )
         }
