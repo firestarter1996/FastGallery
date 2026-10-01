@@ -127,8 +127,12 @@ object PlayerPrewarm {
         if (done) return
         done = true
         val app = context.applicationContext
-        ensureBackgroundThread {
-            if (File(app.filesDir, "perf_no_player_prewarm").exists()) return@ensureBackgroundThread
+        // fast13: always its own thread. warm() is called from MediaActivity.gotMedia, which runs on the album's
+        // loader thread; ensureBackgroundThread runs inline when it is not on the main thread, so the 1.5 s sleep
+        // below held up the album's own list: the first album with videos opened in a process got its media 1.5 s
+        // late (an empty grid for 1.5 s whenever the album had no valid first-screen snapshot, e.g. after a new photo).
+        Thread {
+            if (File(app.filesDir, "perf_no_player_prewarm").exists()) return@Thread
             val started = PerfTrace.sinceStart()
             try {
                 Thread.sleep(1500)   // after the grid's first screens; never competes with them
@@ -138,6 +142,9 @@ object PlayerPrewarm {
                 PerfTrace.mark("player_prewarm", "took=${PerfTrace.sinceStart() - started - 1500}")
             } catch (e: Throwable) {
             }
-        }
+        }.apply {
+            name = "player-prewarm"
+            priority = Thread.MIN_PRIORITY
+        }.start()
     }
 }
