@@ -15,6 +15,7 @@ KEYS = {
     "pickerwarm": [("total", "total"), ("albums", "content"), ("black", "blank_ms")],
     "albumcold": [("total", "total"), ("thumbs", "content"), ("settled", "settled")],
     "albumwarm": [("total", "total"), ("thumbs", "content"), ("settled", "settled")],
+    "albumtap": [("thumbs", "tap_content"), ("settled", "tap_settled"), ("drawn", "tap_displayed"), ("blank", "blank_ms")],
     "scrollgrid": [("p99", "p99"), ("jank%", "janky")],
     "scrollalbum": [("p99", "p99"), ("jank%", "janky")],
 }
