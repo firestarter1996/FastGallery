@@ -15,7 +15,7 @@ for arg in sys.argv[1:]:
         bs, _, key = item.partition(".")
         if key: M.setdefault(bs, {})[key] = N[bs][key]
         else: M[bs] = N[bs]
-BUILDS = ["orig"] + [f"fast{i}" for i in range(4, 13)]
+BUILDS = ["orig"] + [f"fast{i}" for i in range(4, 14)]
 BLOCKS = [  # (title, [(header, scenario, key, note)])
     ("Launch and albums", [
         ("cold", "gridcold", "total", "cold launch TotalTime"),
