@@ -15,7 +15,7 @@ for arg in sys.argv[1:]:
         bs, _, key = item.partition(".")
         if key: M.setdefault(bs, {})[key] = N[bs][key]
         else: M[bs] = N[bs]
-BUILDS = ["orig"] + [f"fast{i}" for i in range(4, 14)]
+BUILDS = ["orig"] + [f"fast{i}" for i in range(4, 14)] + ["fast13f"]
 BLOCKS = [  # (title, [(header, scenario, key, note)])
     ("Launch and albums", [
         ("cold", "gridcold", "total", "cold launch TotalTime"),
@@ -29,10 +29,17 @@ BLOCKS = [  # (title, [(header, scenario, key, note)])
         ("photo", "photo", "first", "viewer opened directly, first picture"),
         ("swipe", "photo", "next_visible", "swipe to the next photo, settled (ms after the swipe)")]),
     ("Photo tap, photo not opened before", [
-        ("picture", "tapnew", "tap_first", "grid tap to the first picture on screen (the instant placeholder counts)"),
-        ("fullres", "tapnew", "tap_fullres", "grid tap to the last refinement (full resolution)"),
+        ("nonblk", "tapnew", "tap_nonblack", "grid tap to the first viewer frame that is not black"),
+        ("pic", "tapnew", "tap_first", "grid tap to the first picture on screen (the instant placeholder counts)"),
+        ("full", "tapnew", "tap_fullres", "grid tap to the last refinement (full resolution)"),
         ("black", "tapnew", "black_ms", "black between the grid and the picture"),
         ("frame", "tapnew", "tap_displayed", "grid tap to the viewer's first frame (Displayed)")]),
+    ("Album opened right after a new photo", [
+        ("thumbs", "albumnew", "content", "first thumbnails on screen (gallery not running)"),
+        ("listed", "albumnew", "listed", "the list with the new photo is on screen"),
+        ("newpic", "albumnew", "newthumb", "the new photo's own thumbnail is drawn"),
+        ("wlist", "albumnewwarm", "listed", "same, gallery alive in the background"),
+        ("wnew", "albumnewwarm", "newthumb", "same, gallery alive in the background")]),
     ("Photo tap, photo opened recently", [
         ("picture", "phototap", "tap_first", "grid tap to the first picture (screen-size image already in Glide's disk cache)"),
         ("fullres", "phototap", "tap_fullres", "grid tap to the last refinement (full resolution)"),
@@ -77,12 +84,13 @@ for title, cols in BLOCKS:
         else:
             lines.append(b.ljust(8) + "".join(num(v).rjust(width) for v in vals))
     pct = []
+    base = "orig" if "orig" in have else have[0]      # no original in the run: compare against the oldest build
     for _, s, k, _ in cols:
-        o, n = val("orig", s, k), val(have[-1], s, k)
+        o, n = val(base, s, k), val(have[-1], s, k)
         if o is None or n is None: pct.append("n/a")
         elif o == 0: pct.append("0%" if n == 0 else "+inf")
         else: pct.append(f"{(n - o) / o * 100:+.0f}%")
-    lines.append("vs orig ".ljust(8) + "".join(p.rjust(width) for p in pct))
+    lines.append(("vs orig " if base == "orig" else "change  ").ljust(8) + "".join(p.rjust(width) for p in pct))
     assert all(len(l) <= 44 for l in lines), (title, max(len(l) for l in lines))
     out.append(f"## {title}\n\n```\n" + "\n".join(lines) + "\n```\n")
     out.append("- " + "; ".join(f"{h} = {note}" for h, _, _, note in cols) + "\n")
