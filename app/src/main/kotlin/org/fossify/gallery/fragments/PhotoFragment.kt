@@ -134,6 +134,8 @@ class PhotoFragment : ViewPagerFragment() {
     private var mOrientationKnown = false     // fast11: the EXIF read now runs in parallel with the Glide load
     private var mScreenImageReady = false
     private var mPlaceholder: Drawable? = null
+    private var mOverrideWidth = 0            // fast13: the remembered view size the Glide request was started with
+    private var mOverrideHeight = 0
 
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
@@ -188,11 +190,6 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             setupGesturesViewStateListener()
-            // fast13: remember the image view's size: MediaActivity preloads the tapped photo at exactly this size, so
-            // this page's own request (same cache key) finds it in memory or joins the decode already running
-            gesturesView.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
-                org.fossify.gallery.helpers.ViewerImage.record(context, right - left, bottom - top)
-            }
             gesturesView.setOnTouchListener { v, event ->
                 val allowDownGesture = context.config.allowDownGesture
                 if (allowDownGesture && abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
@@ -257,6 +254,22 @@ class PhotoFragment : ViewPagerFragment() {
         mIsFullscreen = listener?.isFullScreen() == true
         if (mIsFullscreen) {
             binding.bottomActionsDummy.beGone()
+        }
+        // fast13: remember the image view's size for the next viewer (see ViewerPreload); if this request was started with
+        // a remembered size that turns out wrong (split screen, changed display size), load again at the real one
+        binding.gesturesView.addOnLayoutChangeListener { v, left, top, right, bottom, _, _, _, _ ->
+            val w = right - left
+            val h = bottom - top
+            val act = activity
+            if (w > 0 && h > 0 && act != null) {
+                org.fossify.gallery.helpers.ViewerPreload.record(act, v)
+                if (mOverrideWidth > 0 && (mOverrideWidth != w || mOverrideHeight != h) && mWasInit && !mIsSubsamplingVisible &&
+                    !mMedium.isGIF() && !mMedium.isSVG() && !mMedium.isApng() && !mMedium.isAvif()
+                ) {
+                    mOverrideWidth = 0
+                    v.post { if (context != null && this::binding.isInitialized) loadBitmap() }
+                }
+            }
         }
         showInstantPlaceholder()
         loadImage()
@@ -551,8 +564,15 @@ class PhotoFragment : ViewPagerFragment() {
 
     private fun loadWithGlide(path: String, addZoomableView: Boolean) {
         val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
-        val options = org.fossify.gallery.helpers.ViewerImage.options(mMedium, priority)
+        // fast13: with the image view's size remembered from an earlier viewer, the request does not wait for the first
+        // layout and has the same key as the decode MediaActivity started at the tap (ViewerPreload), so it joins that one
+        val size = activity?.let { org.fossify.gallery.helpers.ViewerPreload.size(it) }
+        mOverrideWidth = size?.width ?: 0
+        mOverrideHeight = size?.height ?: 0
+        val options = org.fossify.gallery.helpers.ViewerPreload.options(mMedium.getKey())
+            .priority(priority)
             .placeholder(mPlaceholder)
+            .run { if (size != null) override(size.width, size.height) else this }
             .run {
                 if (mCurrentRotationDegrees != 0) {
                     transform(Rotate(mCurrentRotationDegrees))
