@@ -40,7 +40,12 @@ def ocr_ss(img):
     p = f"{d}/_ocr.png"; Image.fromarray(255 - np.array(b)).save(p)
     r = subprocess.run(["tesseract", p, "-", "--psm", "7", "-c", "tessedit_char_whitelist=0123456789:."], capture_output=True, text=True).stdout
     m = re.search(r"\d{2}:\d{2}:(\d{2})\.?(\d{3})(?!\d)", r)
-    return int(m.group(1)) + int(m.group(2)) / 1000 if m else None
+    if m: return int(m.group(1)) + int(m.group(2)) / 1000
+    # the dot is often read as a digit or dropped ("10:1.9:315946."): take seconds + millis from the digits after the
+    # last colon (5 digits = ssmmm, 6 = ss?mmm); a misread still has to agree with 3 other frames (see frames())
+    dg = re.sub(r"\D", "", r.strip().rsplit(":", 1)[-1])
+    if len(dg) in (5, 6) and int(dg[:2]) < 60: return int(dg[:2]) + int(dg[-3:]) / 1000
+    return None
 
 
 def frames(mp4):
@@ -53,7 +58,7 @@ def frames(mp4):
         crop = decode(mp4, "crop=200:52:0:4", 200, 52)[1:n]
         # every 2nd frame from the end (app screens read best); stop once 3 readings agree within 6 ms
         offs = []; off = None
-        for i in range(len(pts) - 1, -1, -2):
+        for i in list(range(len(pts) - 1, -1, -2)) + list(range(len(pts) - 2, -1, -2)):
             s = ocr_ss(crop[i])
             if s is None: continue
             offs.append((s - pts[i]) % 60)
@@ -212,7 +217,7 @@ def visual_photo(m, start):
                 sw = i; break
     endi = sw if sw else len(t)
     fin_sq = sq[endi - 1]
-    out = {}
+    out = {"how": how}
     sqm = sq.mean(axis=(1, 2))
     fb = next((i for i in range(endi) if t[i] >= 0 and sqm[i] < 8), None)
     if fb is not None:
@@ -328,13 +333,19 @@ for m in R:
     elif s in ("phototap", "tapnew"):
         st0 = start_ss(m, "ViewPagerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_photo(m, st0))
         r["displayed"] = displayed(m, st0); tp = tap_rel(m, st0); r["tap_to_start"] = None if tp is None else round(-tp, 1)
+        # a run whose overlay clock could not be read is placed on the time axis by the fallback (Displayed + the
+        # median screen latency of the OCR'd runs). That latency differs by ~60 ms between builds with and without
+        # the open animation, so for the tap scenarios such a run only keeps its durations (black_ms, fill)
+        r["fill"] = round(r["fullres"] - r["first"], 1) if all(isinstance(r.get(k), (int, float)) for k in ("first", "fullres")) else None
+        if r.get("how") != "ocr":
+            for k in ("first", "fullres", "viewer", "nonblack"): r[k] = None
         for k in ("first", "fullres", "displayed", "viewer", "nonblack"):   # times since the TAP
             r["tap_" + k] = round(r[k] - tp, 1) if (tp is not None and isinstance(r.get(k), (int, float))) else None
         if s == "tapnew":   # the viewer's title bar must name the pushed copy, else the tap opened another photo
             r["title"] = title_ocr(m); r["title_ok"] = "cmp" in r["title"].lower().replace(" ", "")
             if not r["title_ok"]:
                 print("WARN tapnew opened another photo:", b, m.get("run"), repr(r["title"]), m.get("rec"))
-                for k in ("first", "fullres", "black_ms", "tap_first", "tap_fullres", "tap_displayed", "tap_viewer", "tap_nonblack"): r[k] = None
+                for k in ("first", "fullres", "black_ms", "fill", "tap_first", "tap_fullres", "tap_displayed", "tap_viewer", "tap_nonblack"): r[k] = None
     elif s.startswith("scroll"):
         g = m.get("gfx", {}); r = {k: float(v) for k, v in g.items() if v is not None}
     rows[(b, s)].append(r)

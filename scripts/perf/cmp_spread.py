@@ -5,9 +5,9 @@ One short block per scenario, <= 44 characters wide (phone width)."""
 import json, statistics as st, sys
 KEYS = {
     "tapnew": [("nonblack", "tap_nonblack"), ("picture", "tap_first"), ("fullimg", "tap_fullres"), ("black", "black_ms"),
-               ("viewer", "tap_viewer"), ("drawn", "tap_displayed")],
+               ("fill", "fill"), ("drawn", "tap_displayed")],
     "phototap": [("nonblack", "tap_nonblack"), ("picture", "tap_first"), ("fullimg", "tap_fullres"), ("black", "black_ms"),
-                 ("viewer", "tap_viewer"), ("drawn", "tap_displayed")],
+                 ("fill", "fill"), ("drawn", "tap_displayed")],
     "albumnew": [("thumbs", "content"), ("listed", "listed"), ("newpic", "newthumb")],
     "albumnewwarm": [("thumbs", "content"), ("listed", "listed"), ("newpic", "newthumb")],
     "gridcold": [("total", "total"), ("albums", "content"), ("covers", "settled"), ("black", "blank_ms")],
@@ -36,5 +36,5 @@ for scen, keys in KEYS.items():
         for label, key in keys:
             v = [x[key] for x in L if isinstance(x.get(key), (int, float)) and not isinstance(x.get(key), bool)]
             if not v: print(f"  {label:8s} n/a"); continue
-            print(f"  {label:8s}{st.median(v):6.0f}  ({min(v):.0f} - {max(v):.0f})")
+            print(f"  {label:8s}{st.median(v):6.0f}  ({min(v):.0f} - {max(v):.0f})" + ("" if len(v) == len(L) else f" n={len(v)}"))
     print("```\n")

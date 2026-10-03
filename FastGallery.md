@@ -158,6 +158,62 @@ vs orig     +0%     0%    +1%
 
 - p99 = grid scroll p99 frame time; jank% = janky frames while flinging the grid; pss = PSS after a cold launch (MB)
 
+## fast13f (10-03-2026): the placeholder paints, plus what else measured as a gain
+
+Pixel 6 Pro, fast12 and fast13f interleaved in one session (blocks of 3 runs, 6 runs per build and scenario),
+medians in ms with the range in brackets. Raw runs: ~/fg-fable/final2 (+ final_attr, final_scroll, e1 - e4).
+
+```
+Tap, photo never opened    fast12   fast13f
+first non black frame         226        90
+  (clock read runs)           n=4       n=2
+black frames (n=6)             82         0
+image decoded, log (n=6)      190       127
+viewer frame drawn (n=6)       67        64
+```
+
+```
+Tap, photo opened before   fast12   fast13f
+first picture                 164        91
+image decoded, log (n=6)      101        45
+```
+
+```
+Album right after a new photo
+(gallery not running)      fast12   fast13f
+first thumbnails             1807       304
+list with the new photo      1965       300
+new photo's thumbnail        2150       472
+(gallery in the background)
+list with the new photo      1844       152
+new photo's thumbnail        2033       328
+```
+
+```
+Unchanged                  fast12   fast13f
+cold launch TotalTime         164       160
+cold launch, albums           210       208
+file picker cold, albums      210       204
+warm album, thumbnails        124       120
+grid scroll p99                11        12
+```
+
+- Root cause of the placeholder that never painted: `showInstantPlaceholder()` runs inside `onCreateView`, where
+  `Fragment.getView()` is still null, so its `view != null` guard dropped the placeholder on every tap. Nothing to do
+  with Glide clearing the view or the window background.
+- Kept: the placeholder fix; the screen sized decode started at the grid tap with a remembered view size
+  (ViewerPreload); the viewer opened without the system open animation and its pager filled before the first frame;
+  PlayerPrewarm on its own thread (in fast12 its 1.5 s sleep ran on the thread that loads the album, which held back
+  both the first thumbnails and the rescan whenever the album had changed); new photos taken from MediaStore before
+  the folder listing (quickAdditions).
+- Dropped after measuring: Glide decode threads at default priority, for all decodes (no gain on tap, album, cold
+  launch or picker) and for the viewer only (image 16 ms sooner but the first frame 11 ms later).
+- Off switches (flag files in files/): perf_no_viewer_placeholder, perf_no_viewer_preload, perf_viewer_anim,
+  perf_pager_late, perf_no_quick_additions. `cmp_suite.py` takes them as `fast13f+perf_viewer_anim:3`.
+- Only part of the tap recordings had a readable overlay clock; a run without one keeps its durations (black) and its
+  log times but not its screen times (the fallback anchor is wrong by ~60 ms between builds with and without the open
+  animation).
+
 ## fast11: what changed since v1
 
 - v1's fast11 rows were not fast11. Every `pm install` of fast11.apk hung on Google Play Protect's "Send app for a security check?" dialog (`PlayProtectDialogsActivity`) until the 120 s timeout, the suite logged an empty install result and measured whatever was still installed: fast10 in the first block and fast12 in the second. v1's fast11 row was a fast10/fast12 mix.
