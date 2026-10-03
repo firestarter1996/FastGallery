@@ -157,26 +157,18 @@ def run_one(scen, tag):
         if scen == "albumwarm": launcher_start(); nap(3)
         check(); sh("logcat -b all -c")
         rp = rec_start(rec, 5); m["total"], m["launch"] = camera(); nap(3.2); m["rec"] = rec_pull(rp, rec)
-    elif scen in ("albumtap", "albumnew"):
-        # the real album open: a tap on the Camera tile of the main grid (CMP_ALBUM_TILE "x y"), gallery warm.
-        #   albumtap = nothing changed in the album since it was last opened (its saved first screens are valid): the
-        #              album is opened once first, in a process that is then stopped, so the snapshot is current
-        #   albumnew = a new photo landed in the album since (pushed + media-scanned before the gallery starts): the
-        #              "took a photo, open the gallery, open Camera" case, no valid snapshot
-        if scen == "albumtap":
-            camera(); nap(3.5)
+    elif scen == "albumtap":
+        # the real album open: a tap on the Camera tile of the main grid (CMP_ALBUM_TILE "x y"), gallery warm, nothing
+        # changed in the album since it was last opened (its saved first screens are valid): the album is opened once
+        # first, in a process that is then stopped, so the snapshot is current. (The album right after a new photo is
+        # albumnew / albumnewwarm below.)
+        camera(); nap(3.5)
         sh(f"am force-stop {PKG}"); home()
-        if scen == "albumnew":
-            m["tap_file"] = f"cmp_new_{tag}.jpg"
-            subprocess.run(["adb", "-s", S, "push", TAP_SRC, f"{CAM}/{m['tap_file']}"], capture_output=True)
-            sh(f"touch {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
         launcher_start(); nap(3); check(); sh("logcat -b all -c")
         rp = rec_start(rec, 5)
-        # with a new photo Camera is the newest album and moves to the first tile
-        w = sh(f"date +%H:%M:%S.%N; input -d 0 tap {ALBUM_TILE_NEW if scen == 'albumnew' else ALBUM_TILE}; date +%H:%M:%S.%N").split()
+        w = sh(f"date +%H:%M:%S.%N; input -d 0 tap {ALBUM_TILE}; date +%H:%M:%S.%N").split()
         m["tap_wall"], m["tap_done"] = (w[0], w[-1]) if len(w) >= 2 else (None, None)
         nap(3.0); m["rec"] = rec_pull(rp, rec)
-        if scen == "albumnew": sh(f"rm -f {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
     elif scen == "photo":
         sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check(); sh("logcat -b all -c")
         rp = rec_start(rec, 8); m["total"], m["launch"] = viewer(PHOTO); nap(2.4); check()
@@ -216,6 +208,18 @@ def run_one(scen, tag):
         nap(2.6); m["rec"] = rec_pull(rp, rec)
         sh("input keyevent 4")
         if scen == "tapnew": sh(f"rm -f {CAM}/{m['tap_file']}"); scan_file(f"{CAM}/{m['tap_file']}"); nap(1.0)
+    elif scen in ("albumnew", "albumnewwarm"):
+        # the album opened right after a photo was added to it: a NEW picture (CMP_NEW_SRC, looks unlike the newest
+        # photo) is pushed + media-scanned, then the Camera album is opened. albumnew = gallery process not running;
+        # albumnewwarm = gallery alive in the background when the photo arrives (launched, then HOME).
+        sh(f"am force-stop {PKG}"); home()
+        if scen == "albumnewwarm": launcher_start(); nap(3); home()
+        m["new_file"] = f"cmp_new_{tag}.jpg"
+        subprocess.run(["adb", "-s", S, "push", NEW_SRC, f"{CAM}/{m['new_file']}"], capture_output=True)
+        sh(f"touch {CAM}/{m['new_file']}"); scan_file(f"{CAM}/{m['new_file']}"); nap(2.0)
+        check(); sh("logcat -b all -c")
+        rp = rec_start(rec, 6); m["total"], m["launch"] = camera(); nap(4.2); m["rec"] = rec_pull(rp, rec)
+        sh(f"rm -f {CAM}/{m['new_file']}"); scan_file(f"{CAM}/{m['new_file']}"); nap(1.0)
     elif scen == "scrollgrid":
         sh(f"am force-stop {PKG}"); home(); launcher_start(); nap(3); check(); gfx_reset(); flings(); m["gfx"] = gfx()
     elif scen == "scrollalbum":
@@ -333,9 +337,9 @@ if not on or kg or not (foc and foc.startswith(LAUNCHER)):
     if not on or kg: log("NOT READY"); sys.exit(3)
 PHOTO = CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.jpg$'").strip()
 PHOTO_TILE = os.environ.get("CMP_PHOTO_TILE", "240 608")
-ALBUM_TILE_NEW = os.environ.get("CMP_ALBUM_TILE_NEW", "360 780")
 ALBUM_TILE = os.environ.get("CMP_ALBUM_TILE", "1080 780")     # the Camera tile of the main grid on the 6 Pro (2nd tile, 2026-09-30)
 TAP_SRC = os.environ.get("CMP_TAP_SRC", os.path.expanduser("~/fg-cmp/cmp_tap.jpg"))   # tapnew: EXIF-less copy of the test photo
+NEW_SRC = os.environ.get("CMP_NEW_SRC", os.path.expanduser("~/fg-cmp/cmp_new.jpg"))   # albumnew: a picture unlike the newest photo
 VIDEO = os.environ.get("CMP_VIDEO") or (CAM + "/" + sh(f"ls -t {CAM} | grep -m1 -i '\\.mp4$'").strip())
 log("photo", PHOTO, "video", VIDEO)
 for dev in INPUTS: threading.Thread(target=input_watch, args=(dev,), daemon=True).start()
@@ -370,6 +374,7 @@ try:
             log("INSTALL FAILED", e); results.append({"build": build, "block": bi, "run": 0, "scen": "install_failed", "err": str(e)})
             json.dump(results, open(RES, "w"), indent=0); continue
         ver = sh(f"dumpsys package {PKG} | grep -m1 versionName").strip()
+        sh(f"am force-stop {PKG}")
         log("prepare", build, ver, prepare(build))
         for r in range(k):
             for scen in SCEN:            # interleave scenarios within the block

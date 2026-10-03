@@ -148,8 +148,8 @@ def times(m, start, collect=False):
     return [(p - pts[ch]) * 1000 + anchor + lat for p in pts], im, "anchor"
 
 
-ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "albumtap": "MediaActivity", "albumnew": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity",
-       "phototap": "ViewPagerActivity"}
+ACT = {"albumcold": "MediaActivity", "albumwarm": "MediaActivity", "albumtap": "MediaActivity", "photo": "ViewPagerActivity", "player": "VideoPlayerActivity",
+       "phototap": "ViewPagerActivity", "tapnew": "ViewPagerActivity", "albumnew": "MediaActivity", "albumnewwarm": "MediaActivity"}
 
 
 def tap_rel(m, start):
@@ -222,12 +222,45 @@ def visual_photo(m, start):
         out["black_ms"] = 0.0
     fv = next((i for i in range(endi) if t[i] >= 0 and np.abs(sq[i] - fin_sq).mean() < 20), None)
     out["first"] = round(t[fv], 1) if fv is not None else None
+    # viewer = first frame that no longer shows the screen from before the launch (the viewer window is up, black or
+    # not); nonblack = first viewer frame with a picture in its centre (any picture: the system's open animation shifts
+    # the first frame sideways by ~2 %, which `first`'s match against the final picture rejects)
+    pre = [i for i in range(len(t)) if t[i] < 0]
+    if pre:
+        ref = band[pre[-1]]
+        vw = next((i for i in range(endi) if t[i] >= 0 and np.abs(band[i] - ref).mean() > 6), None)
+        out["viewer"] = round(t[vw], 1) if vw is not None else None
+        nbk = next((i for i in range(vw, endi) if sqm[i] >= 8), None) if vw is not None else None
+        out["nonblack"] = round(t[nbk], 1) if nbk is not None else None
     # refinement happens within ~0.5 s of the first picture; later changes (swipe start, UI) are not full-res
     ch = [i for i in range(max(1, fv or 1), endi) if np.abs(band[i] - band[i - 1]).mean() > 1.0 and fv is not None and t[i] - t[fv] <= 1500]
     out["fullres"] = round(t[ch[-1]], 1) if ch else out["first"]
     if sw:
         fin2 = band[-1]
         out["next_visible"] = next((round(t[i] - t[sw], 1) for i in range(sw, len(t)) if all(np.abs(band[j] - fin2).mean() < 4 for j in range(i, min(len(t), i + 6)))), None)
+    return out
+
+
+def visual_albumnew(m, start):
+    """the album opened right after a photo was added (the grid is 3 columns; boxes = the middle of tile 1 and tile 2):
+    newthumb = first frame whose top-left tile shows the new photo (as in the last frame, and it stays);
+    listed   = first frame whose 2nd tile shows what it shows in the last frame (the old newest photo moved over:
+               the list with the new photo is on screen, its own thumbnail may still be decoding)"""
+    try: t, im, how = times(m, start)
+    except Exception: return {}
+    if t is None: return {"err": "no_ocr"}
+    y0, y1 = int(H * .14), int(H * .25)
+    t1 = im[:, y0:y1, int(W * .05):int(W * .29)]; t2 = im[:, y0:y1, int(W * .38):int(W * .62)]
+    f1, f2 = t1[-1], t2[-1]
+    out = {}
+    stays = lambda a, f, i: all(np.abs(a[j] - f).mean() < 10 for j in range(i, min(len(t), i + 4)))
+    nt = next((i for i in range(len(t)) if t[i] >= 0 and stays(t1, f1, i)), None)
+    ls = next((i for i in range(len(t)) if t[i] >= 0 and stays(t2, f2, i)), None)
+    out["newthumb"] = round(t[nt], 1) if nt is not None else None
+    out["listed"] = round(t[ls], 1) if ls is not None else None
+    # sanity: the new photo must look unlike the old newest one (which is what tile 2 ends up showing)
+    out["new_ok"] = bool(np.abs(f1 - f2).mean() > 15)
+    if not out["new_ok"]: out["newthumb"] = out["listed"] = None
     return out
 
 
@@ -268,7 +301,7 @@ for m in R:
     elif s in ("albumcold", "albumwarm"):
         st0 = start_ss(m, "MediaActivity"); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
         r.update(visual_grid(m, st0, sp_end))
-    elif s in ("albumtap", "albumnew"):
+    elif s == "albumtap":
         st0 = start_ss(m, "MediaActivity"); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
         r.update(visual_grid(m, st0, sp_end))
         r["displayed"] = displayed(m, st0); tp = tap_rel(m, st0); r["tap_to_start"] = None if tp is None else round(-tp, 1)
@@ -279,6 +312,10 @@ for m in R:
         if not r["album_ok"]:
             print("WARN albumtap opened another album:", b, m.get("run"), m.get("rec"))
             for k in ("content", "settled", "blank_ms", "tap_content", "tap_settled", "tap_displayed"): r[k] = None
+    elif s in ("albumnew", "albumnewwarm"):
+        st0 = start_ss(m, "MediaActivity"); sp, sp_end = splash(m, st0); r["splash_ms"] = sp
+        r.update(visual_grid(m, st0, sp_end)); r.update(visual_albumnew(m, st0))
+        r["m_rescan"] = fgperf(m, "incremental_rescan", st0) if st0 else None
     elif s == "photo":
         st0 = start_ss(m, "ViewPagerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_photo(m, st0))
         r["m_fullres"] = fgperf(m, "photo_fullres_ready", st0) if st0 else None
@@ -291,13 +328,13 @@ for m in R:
     elif s in ("phototap", "tapnew"):
         st0 = start_ss(m, "ViewPagerActivity"); r["splash_ms"] = splash(m, st0)[0]; r.update(visual_photo(m, st0))
         r["displayed"] = displayed(m, st0); tp = tap_rel(m, st0); r["tap_to_start"] = None if tp is None else round(-tp, 1)
-        for k in ("first", "fullres", "displayed"):   # times since the TAP
+        for k in ("first", "fullres", "displayed", "viewer", "nonblack"):   # times since the TAP
             r["tap_" + k] = round(r[k] - tp, 1) if (tp is not None and isinstance(r.get(k), (int, float))) else None
         if s == "tapnew":   # the viewer's title bar must name the pushed copy, else the tap opened another photo
             r["title"] = title_ocr(m); r["title_ok"] = "cmp" in r["title"].lower().replace(" ", "")
             if not r["title_ok"]:
                 print("WARN tapnew opened another photo:", b, m.get("run"), repr(r["title"]), m.get("rec"))
-                for k in ("first", "fullres", "black_ms", "tap_first", "tap_fullres", "tap_displayed"): r[k] = None
+                for k in ("first", "fullres", "black_ms", "tap_first", "tap_fullres", "tap_displayed", "tap_viewer", "tap_nonblack"): r[k] = None
     elif s.startswith("scroll"):
         g = m.get("gfx", {}); r = {k: float(v) for k, v in g.items() if v is not None}
     rows[(b, s)].append(r)
