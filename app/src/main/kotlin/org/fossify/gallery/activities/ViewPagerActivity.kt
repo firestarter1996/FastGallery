@@ -494,11 +494,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         binding.mediumViewerToolbar.title = mPath.getFilenameFromPath()
 
-        binding.viewPager.onGlobalLayout {
-            if (!isDestroyed) {
-                if (mMediaFiles.isNotEmpty()) {
-                    gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
-                    checkSlideshowOnEnter()
+        // fast13: the pager is filled right away. Waiting for the first layout (upstream) meant the viewer's first frame
+        // was drawn with an empty pager: one black frame whenever the open animation does not hide it (MediaActivity
+        // .openInViewPager with files/perf_viewer_noanim). A slideshow start still waits for the layout. Benchmark switch: files/perf_pager_late.
+        if (mMediaFiles.isNotEmpty() && !intent.getBooleanExtra(SLIDESHOW_START_ON_ENTER, false) &&
+            !java.io.File(filesDir, "perf_pager_late").exists()
+        ) {
+            gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
+        } else {
+            binding.viewPager.onGlobalLayout {
+                if (!isDestroyed) {
+                    if (mMediaFiles.isNotEmpty()) {
+                        gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
+                        checkSlideshowOnEnter()
+                    }
                 }
             }
         }

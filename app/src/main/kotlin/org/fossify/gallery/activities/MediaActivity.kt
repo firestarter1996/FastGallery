@@ -724,7 +724,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mPath = mPath,
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
-            showAll = mShowAll
+            showAll = mShowAll,
+            // fast13: photos added since the last visit show up before the folder listing is done (MediaFetcher.quickAdditions)
+            onQuickResult = if (mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || mShowAll) null else { quick ->
+                PerfTrace.mark("got_quick", "n=${quick.size}")
+                gotMedia(quick, true)
+            }
         ) {
             ensureBackgroundThread {
                 val oldMedia = mMedia.clone() as ArrayList<ThumbnailItem>
@@ -1022,9 +1027,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun openInViewPager(path: String) {
-        // fast13: the viewer's screen-sized image starts decoding now, not ~70 ms later when its page is laid out
-        (mMedia.firstOrNull { it is Medium && it.path == path } as? Medium)?.let {
-            org.fossify.gallery.helpers.ViewerImage.preload(this, it)
+        // fast13: start the viewer's screen-sized decode now, ~60 ms before the viewer's own request could
+        try {
+            (mMedia.firstOrNull { it is Medium && it.path == path } as? Medium)?.let { org.fossify.gallery.helpers.ViewerPreload.start(this, it) }
+        } catch (ignored: Exception) {
         }
         Intent(this, ViewPagerActivity::class.java).apply {
             putExtra(SKIP_AUTHENTICATION, shouldSkipAuthentication())
@@ -1033,7 +1039,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             putExtra(SHOW_FAVORITES, mPath == FAVORITES)
             putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
             putExtra(IS_FROM_GALLERY, true)
-            startActivity(this)
+            // fast14: the system's open animation is kept by default. The viewer's first frame already shows the tapped
+            // picture (instant placeholder), but the activity open animation keeps the grid on screen for ~50 ms after
+            // that frame is drawn (at the Pixel 6 Pro's 0.1x animation scale; ~10x that at the default scale), so opening
+            // without it shows the picture sooner (tap to picture ~150 -> ~95 ms). That changes the look, so it is a
+            // choice: the file files/perf_viewer_noanim opens the viewer without the animation (fast13f's default).
+            // Going back keeps the normal close animation either way.
+            if (java.io.File(filesDir, "perf_viewer_noanim").exists()) {
+                startActivity(this, android.app.ActivityOptions.makeCustomAnimation(this@MediaActivity, 0, 0).toBundle())
+            } else {
+                startActivity(this)
+            }
         }
     }
 
@@ -1050,6 +1066,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun gotMedia(media: ArrayList<ThumbnailItem>, isFromCache: Boolean) {
         mIsGettingMedia = false
+        PerfTrace.mark("got_media", "cache=$isFromCache n=${media.size}")
         if (!mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent && media.any { it is Medium && it.isVideo() }) {
             org.fossify.gallery.helpers.PlayerPrewarm.warm(this)
         }
