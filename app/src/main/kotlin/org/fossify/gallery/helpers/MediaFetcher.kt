@@ -26,6 +26,9 @@ import kotlin.math.roundToInt
 class MediaFetcher(val context: Context) {
     var shouldStop = false
 
+    /** fast13: receives (on the scanning thread) the cached rows + the files MediaStore lists as new, before the slow folder listing */
+    var onQuickResult: ((ArrayList<Medium>) -> Unit)? = null
+
     // on Android 11 we fetch all files at once from MediaStore and have it split by folder, use it if available
     fun getFilesFrom(
         curPath: String, isPickImage: Boolean, isPickVideo: Boolean, requestedDateTaken: Boolean, requestedLastModified: Boolean,
@@ -129,6 +132,16 @@ class MediaFetcher(val context: Context) {
                     // the last scan found, so only the difference is examined instead of re-stat'ing every file (Camera
                     // 17.8k files took ~10 s per launch, Screenshots 20k ~6-13 s, after every new photo/screenshot).
                     if (!isPicker && !PerfTrace.legacy && ScanCache.matchesExceptMtime(stored, cached.size, scanExtra)) {
+                        val quick = onQuickResult
+                        if (quick != null) {
+                            quickAdditions(
+                                curPath, cached, stored.orEmpty(), filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
+                                favoritePaths, getVideoDurations
+                            )?.let {
+                                sortMedia(it, context.config.getFolderSorting(curPath))
+                                if (!shouldStop) quick(it)
+                            }
+                        }
                         val updated = rescanChangedFolder(
                             curPath, cached, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
                             favoritePaths, getVideoDurations
@@ -778,6 +791,58 @@ class MediaFetcher(val context: Context) {
     }
 
     /**
+     * FastGallery (fast13): listing a folder through the phone's storage layer costs ~0.17 ms per file (Camera with 1,051
+     * files: 160-250 ms on the Pixel 6 Pro, 17.8k files: seconds), and the incremental rescan below needs that listing
+     * before it can show a photo taken since the last visit. MediaStore already knows the files added since the last
+     * scan, so those are shown first (one indexed query, ~10 ms); the listing still runs and delivers the final list
+     * (it also catches deletions and files MediaStore does not know). Returns the cached rows plus the new files, or
+     * null when MediaStore lists nothing new. Off switch for benchmarks: files/perf_no_quick_additions.
+     */
+    private fun quickAdditions(
+        folder: String, cached: List<Medium>, stored: String, filterMedia: Int, getProperDateTaken: Boolean, getProperLastModified: Boolean,
+        getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean
+    ): ArrayList<Medium>? {
+        val since = stored.substringBefore('|').toLongOrNull() ?: return null   // the folder's mtime at the last scan (ms)
+        if (since <= 0L || File(context.filesDir, "perf_no_quick_additions").exists()) return null
+        val started = PerfTrace.sinceStart()
+        return try {
+            val cachedNames = HashSet<String>(cached.size * 2)
+            cached.forEach { cachedNames.add(it.name) }
+            val showHidden = context.config.shouldShowHidden
+            val newFiles = ArrayList<File>()
+            val selection = "${Files.FileColumns.BUCKET_ID} = ? AND ${Files.FileColumns.DATE_ADDED} >= ?"
+            val args = arrayOf(folder.lowercase(Locale.ROOT).hashCode().toString(), (since / 1000 - 2).toString())
+            context.contentResolver.query(Files.getContentUri("external"), arrayOf(Files.FileColumns.DATA), selection, args, null)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val file = File(cursor.getString(0) ?: continue)
+                    val name = file.name
+                    if (file.parent != folder || name in cachedNames || (!showHidden && name.startsWith('.'))) continue
+                    if (newFiles.size >= 200) return null
+                    if (file.exists()) newFiles.add(file)
+                }
+            }
+            if (newFiles.isEmpty()) return null
+            val lastModifieds = HashMap<String, Long>()
+            val dateTakens = HashMap<String, Long>()
+            if (getProperLastModified || getProperDateTaken) {
+                queryDatesForPaths(newFiles.map { it.absolutePath }, lastModifieds, dateTakens)
+            }
+            val added = getMediaInFolder(
+                folder, false, false, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
+                favoritePaths, getVideoDurations, lastModifieds, dateTakens, onlyFiles = newFiles
+            )
+            if (added.isEmpty()) return null
+            val result = ArrayList<Medium>(cached.size + added.size)
+            result.addAll(cached)
+            result.addAll(added)
+            PerfTrace.mark("quick_additions", "took=${PerfTrace.sinceStart() - started} added=${added.size} $folder")
+            result
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * FastGallery incremental rescan of a folder whose mtime changed: keep the cached rows whose files are still listed,
      * drop the rest, and build rows only for the new names. Returns null (caller does a full scan) when the folder cannot
      * be listed or too many files are new.
@@ -787,7 +852,9 @@ class MediaFetcher(val context: Context) {
         getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean
     ): ArrayList<Medium>? {
         if (context.config.fileLoadingPriority == PRIORITY_VALIDITY) return null
+        PerfTrace.mark("rescan_start", "cached=${cached.size}")
         val names = File(folder).list() ?: return null
+        PerfTrace.mark("rescan_listed", "names=${names.size}")
         val present = HashSet<String>(names.size * 2)
         names.forEach { present.add(it) }
         val cachedNames = HashSet<String>(cached.size * 2)
@@ -821,11 +888,13 @@ class MediaFetcher(val context: Context) {
                 }
             }
 
+            PerfTrace.mark("rescan_dates", "lm=${lastModifieds.size} dt=${dateTakens.size}")
             val added = getMediaInFolder(
                 folder, false, false, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
                 favoritePaths, getVideoDurations, lastModifieds, dateTakens, onlyFiles = newFiles
             )
             result.addAll(added)
+            PerfTrace.mark("rescan_built", "added=${added.size}")
             try {
                 context.mediaDB.insertAll(added)
             } catch (ignored: Exception) {
