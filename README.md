@@ -49,6 +49,10 @@ restorecon -R /data/data/org.fossify.gallery
 
 Standard Fossify Gradle project (`./gradlew assembleFossRelease`). Signing reads `keystore.properties` or the `SIGNING_*` environment variables; the release workflow signs with the FastGallery key from repository secrets and publishes each build as a GitHub Release.
 
+## Support
+
+FastGallery is free with no ads. If it helps you, you can support it on GitHub Sponsors (https://github.com/sponsors/firestarter1996) or Ko-fi (https://ko-fi.com/firestarter1996). Thank you!
+
 ## License
 
 GPL-3.0, same as upstream. Not affiliated with Fossify.
