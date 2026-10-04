@@ -158,6 +158,62 @@ vs orig     +0%     0%    +1%
 
 - p99 = grid scroll p99 frame time; jank% = janky frames while flinging the grid; pss = PSS after a cold launch (MB)
 
+## fast14 (10-04-2026): fast13 and fast13f merged, measured against both
+
+fast13 (branch opus-speed) and fast13f (branch fable-speed) did the same speed work independently. fast14 keeps one
+implementation per feature: fast13f's quick additions from MediaStore and its tap preload (ViewerPreload), fast13's
+codec prewarm thread, the shared placeholder fix. Pixel 6 Pro, real screen, the three builds installed in turn in one
+session (blocks of 3 runs), medians in ms, run count in brackets. fast13f was run with the open animation kept
+(`perf_viewer_anim`), because fast14 keeps it. Raw runs: ~/fg-fast14 (p1, p2, p3, d2, d3; first session m1, m2, t1).
+
+```
+Photo tap (since the tap)
+                 fast14 fast13f  fast13
+never opened
+ picture        161(12) 171(8) 160(11)
+ sharp image    177(12) 185(8) 178(11)
+opened before
+ picture        164(11) 172(9) 165(11)
+ sharp image    177(11) 190(9) 180(11)
+```
+
+```
+Album right after a new photo
+                 fast14 fast13f  fast13
+gallery not running
+ list, new photo 296(6) 295(6) 371(6)
+ new thumbnail   465(6) 470(6) 571(6)
+gallery in the background
+ list, new photo 156(6) 155(6) 352(6)
+ new thumbnail   335(6) 349(6) 544(6)
+```
+
+```
+Unchanged        fast14 fast13f  fast13
+cold launch     162(6) 168(6) 164(6)
+ albums         204(6) 211(6) 207(6)
+picker, albums  201(6) 208(6) 201(6)
+album, intent  127(24) 127(6) 126(25)
+album, tap     121(15) 126(6) 122(15)
+ settled       155(15) 159(6) 155(15)
+```
+
+- The open animation is a choice. fast14 opens a photo with the system animation, as upstream and fast13 do. The file
+  `files/perf_viewer_noanim` opens the viewer without it (fast13f's default): the picture is then on screen 78 ms
+  after the tap for a never opened photo and 89 ms for an opened one (9 runs each; fast13f itself 76 and 92), about
+  80 ms sooner, at the price of the grid cutting straight to the photo. Going back keeps its animation either way.
+- One thing was fixed on the way. The first fast14 build started the viewer's own request with the remembered view
+  size (fast13f's way). With the animation kept that drew the viewer's first frame about one frame later for a photo
+  already in the memory cache: picture at 170 against fast13's 162 (14 and 13 runs), log time of the first viewer
+  frame 75 against 68. fast13's notes had the same finding. Now the explicit size is used only together with
+  `perf_viewer_noanim`; the decode still starts at the grid tap in both modes. After the fix: 164 against 165.
+- Album open by intent looked 8 ms behind fast13 in the first sessions (129 against 122, 26 and 27 runs) while album
+  open by tap was level (123 against 122). The code on that path is the same in both builds, and a round of 10 more
+  runs each gave 130 against 131, so it is counted as noise.
+- Off switches (flag files in files/): perf_viewer_noanim (see above), perf_no_viewer_placeholder,
+  perf_no_viewer_preload, perf_pager_late, perf_no_quick_additions, perf_no_player_prewarm.
+- Hands on check of fast14: album, photo, swipe, zoom, rotate, video, back, slideshow start, split screen. No crash.
+
 ## fast13f (10-03-2026): the placeholder paints, plus what else measured as a gain
 
 Pixel 6 Pro, fast12 and fast13f interleaved in one session (blocks of 3 runs, 6 runs per build and scenario),
