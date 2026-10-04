@@ -564,9 +564,10 @@ class PhotoFragment : ViewPagerFragment() {
 
     private fun loadWithGlide(path: String, addZoomableView: Boolean) {
         val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
-        // fast13: with the image view's size remembered from an earlier viewer, the request does not wait for the first
-        // layout and has the same key as the decode MediaActivity started at the tap (ViewerPreload), so it joins that one
-        val size = activity?.let { org.fossify.gallery.helpers.ViewerPreload.size(it) }
+        // fast13: the request has the same key as the decode MediaActivity started at the tap (ViewerPreload), so it joins
+        // that one. fast14: it is started with the remembered size (before the first layout) only when the viewer opens
+        // without the system animation; otherwise it waits for the layout as upstream does (see ViewerPreload.requestSize)
+        val size = activity?.let { org.fossify.gallery.helpers.ViewerPreload.requestSize(it) }
         mOverrideWidth = size?.width ?: 0
         mOverrideHeight = size?.height ?: 0
         val options = org.fossify.gallery.helpers.ViewerPreload.options(mMedium.getKey())
