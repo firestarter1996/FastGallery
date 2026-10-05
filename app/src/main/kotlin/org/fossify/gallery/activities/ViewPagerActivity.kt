@@ -266,6 +266,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         stopSlideshow()
     }
 
+    override fun finish() {
+        super.finish()
+        // fast15: back to the album without the system's close animation (the album is already drawn underneath);
+        // the swipe down gesture sets its own slide_down after this. Benchmark switch: files/perf_viewer_close_anim.
+        try {
+            if (!org.fossify.gallery.helpers.ViewerPreload.closeAnimated(this)) {
+                @Suppress("DEPRECATION")
+                overridePendingTransition(0, 0)
+            }
+        } catch (ignored: Exception) {
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         ColorModeHelper.resetColorMode(this)
@@ -496,7 +509,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         // fast13: the pager is filled right away. Waiting for the first layout (upstream) meant the viewer's first frame
         // was drawn with an empty pager: one black frame whenever the open animation does not hide it (MediaActivity
-        // .openInViewPager with files/perf_viewer_noanim). A slideshow start still waits for the layout. Benchmark switch: files/perf_pager_late.
+        // .openInViewPager, the fast15 default). A slideshow start still waits for the layout. Benchmark switch: files/perf_pager_late.
         if (mMediaFiles.isNotEmpty() && !intent.getBooleanExtra(SLIDESHOW_START_ON_ENTER, false) &&
             !java.io.File(filesDir, "perf_pager_late").exists()
         ) {

@@ -1039,16 +1039,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             putExtra(SHOW_FAVORITES, mPath == FAVORITES)
             putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
             putExtra(IS_FROM_GALLERY, true)
-            // fast14: the system's open animation is kept by default. The viewer's first frame already shows the tapped
-            // picture (instant placeholder), but the activity open animation keeps the grid on screen for ~50 ms after
-            // that frame is drawn (at the Pixel 6 Pro's 0.1x animation scale; ~10x that at the default scale), so opening
-            // without it shows the picture sooner (tap to picture ~150 -> ~95 ms). That changes the look, so it is a
-            // choice: the file files/perf_viewer_noanim opens the viewer without the animation (fast13f's default).
-            // Going back keeps the normal close animation either way.
-            if (java.io.File(filesDir, "perf_viewer_noanim").exists()) {
-                startActivity(this, android.app.ActivityOptions.makeCustomAnimation(this@MediaActivity, 0, 0).toBundle())
-            } else {
+            // fast15: the viewer opens without the system's open animation (owner 10-04-2026: "always: whatever the
+            // fastest result is"). The viewer's first frame already shows the tapped picture (instant placeholder), but
+            // the open animation kept the grid on screen for ~50 ms after that frame (at the Pixel 6 Pro's 0.1x scale;
+            // ~10x that at the default scale): tap to picture ~161 -> ~80 ms. Benchmark switch files/perf_viewer_anim
+            // brings the animation back (fast14's default).
+            if (org.fossify.gallery.helpers.ViewerPreload.openAnimated(this@MediaActivity)) {
                 startActivity(this)
+            } else {
+                startActivity(this, android.app.ActivityOptions.makeCustomAnimation(this@MediaActivity, 0, 0).toBundle())
             }
         }
     }

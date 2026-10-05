@@ -35,14 +35,24 @@ object ViewerPreload {
     fun size(activity: Activity): ThumbSizes.Spec? = if (disabled(activity)) null else ThumbSizes.get(activity, kind(activity))
 
     /**
+     * fast15: the viewer opens WITHOUT the system's open animation by default (owner 10-04-2026: "always: whatever the
+     * fastest result is"; new photo on screen 161 -> about 80 ms on the Pixel 6 Pro). The file files/perf_viewer_anim
+     * brings the animation back (benchmark switch only).
+     */
+    fun openAnimated(context: Context) = File(context.filesDir, "perf_viewer_anim").exists()
+
+    /** fast15: going back from the viewer also skips the close animation; files/perf_viewer_close_anim brings it back */
+    fun closeAnimated(context: Context) = File(context.filesDir, "perf_viewer_close_anim").exists()
+
+    /**
      * fast14: the size the viewer's OWN request is started with, or null = it takes the size from its laid-out view
      * (same key as the tap preload either way). An explicit size only pays when the viewer opens without the system
-     * animation (files/perf_viewer_noanim): with the animation kept it brought no gain for a never opened photo and
+     * animation (the fast15 default): with the animation kept it brought no gain for a never opened photo and
      * drew the viewer's first frame about one frame (8 ms) later for a photo that is already in the memory cache
      * (Pixel 6 Pro, 10-04-2026, 14 and 13 runs; opus-speed measured the same on 09-30-2026).
      */
     fun requestSize(activity: Activity): ThumbSizes.Spec? =
-        if (File(activity.filesDir, "perf_viewer_noanim").exists()) size(activity) else null
+        if (!openAnimated(activity)) size(activity) else null
 
     fun record(activity: Activity, view: View) = ThumbSizes.record(activity, kind(activity), view, false, 0, false)
 
