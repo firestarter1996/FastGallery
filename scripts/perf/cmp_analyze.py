@@ -292,6 +292,25 @@ def visual_player(m, start):
     return out
 
 
+
+def visual_back(m):
+    """BACK from the viewer: ms since the key was handled (key_done) until the screen shows the album as it ends up
+    (settled: stays within a small distance of the last frame) and until the first visible change"""
+    mm = re.match(r"\d\d:\d\d:(\d\d)\.(\d{3})", m.get("key_done") or "")
+    if not mm: return {"err": "no_key"}
+    start = int(mm.group(1)) + int(mm.group(2)) / 1000
+    try: t, im, how = times(m, start)
+    except Exception: return {}
+    if t is None or how != "ocr": return {"err": "no_ocr"}
+    fin = body(im[-1]); pre = [i for i in range(len(t)) if t[i] < 0]
+    ref = body(im[pre[-1]]) if pre else body(im[0])
+    out = {}
+    ch = next((i for i in range(len(t)) if t[i] >= -100 and np.abs(body(im[i]) - ref).mean() > 4), None)
+    out["back_change"] = round(t[ch], 1) if ch is not None else None
+    s_i = next((i for i in range(len(t)) if t[i] >= -100 and all(np.abs(body(im[j]) - fin).mean() < 3 for j in range(i, len(t)))), None)
+    out["back_settled"] = round(t[s_i], 1) if s_i is not None else None
+    return out
+
 calibrate()
 rows = collections.defaultdict(list)
 for m in R:
@@ -346,6 +365,8 @@ for m in R:
             if not r["title_ok"]:
                 print("WARN tapnew opened another photo:", b, m.get("run"), repr(r["title"]), m.get("rec"))
                 for k in ("first", "fullres", "black_ms", "fill", "tap_first", "tap_fullres", "tap_displayed", "tap_viewer", "tap_nonblack"): r[k] = None
+    elif s == "back":
+        r.update(visual_back(m))
     elif s.startswith("scroll"):
         g = m.get("gfx", {}); r = {k: float(v) for k, v in g.items() if v is not None}
     rows[(b, s)].append(r)

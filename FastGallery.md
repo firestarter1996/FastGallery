@@ -158,6 +158,54 @@ vs orig     +0%     0%    +1%
 
 - p99 = grid scroll p99 frame time; jank% = janky frames while flinging the grid; pss = PSS after a cold launch (MB)
 
+## fast15 (10-04-2026): photos open without the animation, back without it too
+
+Owner's decision 10-04-2026, asked whether to keep the photo opening animation: "always: whatever the fastest result
+is". fast15 opens the viewer without the system's open animation (fast14's `perf_viewer_noanim` path is now the normal
+path, including the explicit remembered size for the viewer's own request) and also goes back to the album without the
+close animation (the swipe down gesture keeps its own slide). Pixel 6 Pro, real screen, fast15 and fast14 interleaved
+(blocks of 3 runs, ABBA, plus a second session of blocks of 5 for the photo tap, cold launch and video), medians in ms,
+run count in brackets. Raw runs: ~/fg-fast14 (f1, g1, c1).
+
+```
+Photo tap (since the tap)
+                  fast15  fast14
+never opened
+ picture          75(6)  156(5)
+ sharp image     163(6)  170(5)
+opened before
+ picture         86(16)  176(15)
+ sharp image     86(16)  189(15)
+Back to album
+ album settled    53(6)  144(6)
+```
+
+```
+Unchanged         fast15  fast14
+cold launch      162(16) 161(16)
+ albums          214(16) 204(16)
+video picture    142(16) 142(16)
+album, tap       118(6)  120(6)
+album, intent    126(6)  127(6)
+picker, albums   208(6)  201(6)
+new photo, list  288(6)  284(6)
+ in background   155(6)  156(6)
+photo by intent  187(6)  183(6)
+ swipe to next   286(6)  287(6)
+```
+
+- Going back: with the close animation brought back (`perf_viewer_close_anim`) the album was settled 169 ms after the
+  key, without it 55 ms (8 runs each, same session), so the close animation goes too.
+- Cold launch "albums" (first frame with album covers, screen recording) reads about 10 ms later for fast15, but the
+  launch path is the same code in both builds (MainActivity, untouched), the app's own markers are level (Displayed
+  162 against 161, grid drawn 140 against 140) and the frame read varies by one frame between sessions, so it is
+  counted as noise. Same for the picker.
+- No black frame on any photo open (black 0 ms in every run); opened photos show the sharp image in the first frame.
+- Switches (flag files in files/): perf_viewer_anim brings the open animation back, perf_viewer_close_anim the close
+  animation; perf_viewer_noanim is gone (it is the default). New suite scenario `back` (cmp_suite.py, cmp_analyze.py).
+- Hands on check of fast15: album, photo, swipe, zoom, rotate, video, back, swipe down to close, slideshow (runs and
+  stops). No crash.
+
 ## fast14 (10-04-2026): fast13 and fast13f merged, measured against both
 
 fast13 (branch opus-speed) and fast13f (branch fable-speed) did the same speed work independently. fast14 keeps one

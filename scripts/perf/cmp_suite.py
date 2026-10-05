@@ -220,6 +220,15 @@ def run_one(scen, tag):
         check(); sh("logcat -b all -c")
         rp = rec_start(rec, 6); m["total"], m["launch"] = camera(); nap(4.2); m["rec"] = rec_pull(rp, rec)
         sh(f"rm -f {CAM}/{m['new_file']}"); scan_file(f"{CAM}/{m['new_file']}"); nap(1.0)
+    elif scen == "back":
+        # fast15: BACK from the viewer to the album (the close animation question). The newest photo is opened by a real
+        # tap, then BACK is sent while recording; key_done = right after `input keyevent 4` returned (key up handled)
+        sh(f"am force-stop {PKG}"); home(); camera(); nap(2.5); check()
+        sh(f"input -d 0 tap {PHOTO_TILE}"); nap(2.2); check(); sh("logcat -b all -c")
+        rp = rec_start(rec, 4)
+        w = sh("date +%H:%M:%S.%N; input keyevent 4; date +%H:%M:%S.%N").split()
+        m["key_wall"], m["key_done"] = (w[0], w[-1]) if len(w) >= 2 else (None, None)
+        nap(2.4); m["rec"] = rec_pull(rp, rec)
     elif scen == "scrollgrid":
         sh(f"am force-stop {PKG}"); home(); launcher_start(); nap(3); check(); gfx_reset(); flings(); m["gfx"] = gfx()
     elif scen == "scrollalbum":
