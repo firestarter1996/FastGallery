@@ -86,7 +86,9 @@ class MediaVisibilityTest {
         val feb2025 = 1_739_723_134_000L
         val stampedToday = 1_791_291_561_000L   // 10-06-2026 04:59:21 UTC, what the 8 Pro DB held
         assertEquals(feb2025 to 1_739_723_132_939L, MediaDates.correction(stampedToday, feb2025, 1_739_723_132_939L, null))
-        assertNull(MediaDates.correction(feb2025 + 2_000L, feb2025, null, null))
+        assertNull(MediaDates.correction(feb2025 + 999L, feb2025, null, null))
+        // stamped 16 s after the photo was taken (MediaStore notification): corrected too
+        assertEquals(feb2025 to feb2025, MediaDates.correction(feb2025 + 16_000L, feb2025, null, null))
         // the 8 Pro case: MediaStore has no date taken yet, the name still gives February 2025, never today
         assertEquals(feb2025 to 1_739_723_132_939L, MediaDates.correction(stampedToday, feb2025, 0L, null, "PXL_20250216_162532939.jpg"))
         assertNull("rows scanned without dates are not touched", MediaDates.correction(0L, feb2025, null, null))

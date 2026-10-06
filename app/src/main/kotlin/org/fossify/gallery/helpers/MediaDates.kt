@@ -12,8 +12,8 @@ import kotlin.math.abs
  * 2025 photos that Google Photos touched (restored from its trash) were dated "today" and sat on top of Camera.
  */
 object MediaDates {
-    /** a stored date this far from MediaStore's is wrong, not rounding */
-    const val TOLERANCE_MS = 60_000L
+    /** a stored date this far from MediaStore's is wrong, not rounding (MediaStore keeps whole seconds) */
+    const val TOLERANCE_MS = 2_000L
 
     fun pick(
         mediaStoreModifiedMs: Long?, mediaStoreTakenMs: Long?, fileMtimeMs: Long, fixedTakenMs: Long?, fileName: String? = null

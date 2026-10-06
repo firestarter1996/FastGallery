@@ -14,14 +14,11 @@ import org.fossify.gallery.helpers.DbRepair
 class PackageReplacedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        val pending = goAsync()
+        // not held with goAsync(): on the 8 Pro (70k rows) the work outlived the broadcast timeout and Android killed the
+        // process as a background ANR. The repair is idempotent and MainActivity runs it again if this one is cut short.
         val app = context.applicationContext
         ensureBackgroundThread {
-            try {
-                DbRepair.run(app, refreshFolders = true)
-            } finally {
-                pending.finish()
-            }
+            DbRepair.run(app, refreshFolders = true)
         }
     }
 }

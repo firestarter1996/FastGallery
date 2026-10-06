@@ -19,7 +19,7 @@ import org.fossify.gallery.models.Medium
  * 1. Hidden purge: with hidden items off, rows (and album rows) of folders that MediaVisibility says are invisible are
  *    deleted from the app's DB: Android's .thumbnails cache, .recycle, folders with .nomedia, excluded folders. Only
  *    DB rows: no file on the phone is ever touched. Runs again whenever the hidden/excluded/included settings change.
- * 2. Date repair: rows whose last modified date disagrees with MediaStore by more than a minute get the dates a full
+ * 2. Date repair: rows whose last modified date disagrees with MediaStore by more than two seconds get the dates a full
  *    scan would give them (MediaDates). The first run checks every row; later runs only the files MediaStore changed
  *    since (GENERATION_MODIFIED), which costs one small query and is skipped while MediaStore's generation is unchanged.
  */
@@ -27,7 +27,7 @@ object DbRepair {
     private const val PREFS = "fast_repairs"
     private const val PURGE_KEY = "hidden_purge"
     private const val DATES_KEY = "dates_generation"
-    private const val VERSION = 1
+    private const val VERSION = 2   // 2: dates checked to the second (v1 let rows stamped up to a minute late pass)
 
     /** returns the folders whose rows changed */
     /**
