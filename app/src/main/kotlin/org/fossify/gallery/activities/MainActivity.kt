@@ -1242,6 +1242,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val getProperFileSize = config.directorySorting and SORT_BY_SIZE != 0
         val dirPathsToRemove = ArrayList<String>()
         PerfTrace.mark("scan_start")
+        // FastGallery (fast16): drop rows of hidden folders and fix dates a stray writer got wrong, before the folders are
+        // rechecked below, so the album tiles and covers are rebuilt from correct rows in this same pass
+        if (isFullLoad && !mIsThirdPartyIntent) {
+            org.fossify.gallery.helpers.DbRepair.run(applicationContext)
+        }
         // FastGallery: the global maps are built lazily, only if some folder needs a full walk (legacy: always, up front)
         val lazyMaps = LazyScanMaps(mLastMediaFetcher!!)
         val lastModifieds = if (PerfTrace.legacy) mLastMediaFetcher!!.getLastModifieds() else HashMap()

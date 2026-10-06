@@ -73,6 +73,14 @@ object DirSnapshot {
         }
     }
 
+    /** fast16: drop the snapshot (the album rows changed behind it); the next launch saves a fresh one */
+    fun delete(context: Context) {
+        try {
+            file(context).delete()
+        } catch (ignored: Exception) {
+        }
+    }
+
     fun save(context: Context, dirs: List<Directory>) {
         try {
             val arr = JSONArray()

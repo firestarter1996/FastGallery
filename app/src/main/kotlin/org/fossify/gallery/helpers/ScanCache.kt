@@ -64,6 +64,10 @@ object ScanCache {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(path, "${parts[0]}|${parts[1]}|$extra").apply()
     }
 
+    fun remove(context: Context, path: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(path).apply()
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }

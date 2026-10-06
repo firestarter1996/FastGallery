@@ -304,6 +304,14 @@
         </provider>
 
         <receiver
+            android:name=".receivers.PackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".receivers.RefreshMediaReceiver"
             android:exported="true">
             <intent-filter>

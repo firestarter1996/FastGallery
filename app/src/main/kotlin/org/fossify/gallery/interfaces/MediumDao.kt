@@ -12,6 +12,19 @@ interface MediumDao {
     @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE full_path = :path LIMIT 1")
     fun getMediumByPath(path: String): Medium?
 
+    // fast16 (DbRepair): the parent folders of all visible rows, all visible rows, a date fix, a folder purge
+    @Query("SELECT DISTINCT parent_path FROM media WHERE deleted_ts = 0")
+    fun getVisibleParentPaths(): List<String>
+
+    @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts = 0")
+    fun getAllVisibleMedia(): List<Medium>
+
+    @Query("UPDATE media SET last_modified = :modified, date_taken = :taken WHERE full_path = :path")
+    fun updateDates(path: String, modified: Long, taken: Long)
+
+    @Query("DELETE FROM media WHERE deleted_ts = 0 AND parent_path = :path COLLATE NOCASE")
+    fun deleteVisibleMediaInFolder(path: String): Int
+
     @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts = 0 AND is_favorite = 1")
     fun getFavorites(): List<Medium>
 

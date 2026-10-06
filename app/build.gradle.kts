@@ -133,6 +133,11 @@ android {
             enableSplit = false
         }
     }
+
+    // fast16: plain JVM unit tests (src/test); android.* calls return defaults instead of throwing
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 detekt {
@@ -143,6 +148,7 @@ detekt {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(libs.fossify.commons)
     implementation(libs.androidx.print)
     implementation(libs.android.image.cropper)

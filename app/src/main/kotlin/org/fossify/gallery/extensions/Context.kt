@@ -1259,6 +1259,12 @@ fun Context.addPathToDB(path: String) {
             return@ensureBackgroundThread
         }
 
+        // FastGallery (fast16): the same visibility rule as a stock scan; a file in a hidden, .nomedia or excluded folder
+        // (Android's Pictures/.thumbnails cache, .recycle, ...) never gets a row while hidden items are off
+        if (!org.fossify.gallery.helpers.MediaVisibility.forContext(this).isFileVisible(path)) {
+            return@ensureBackgroundThread
+        }
+
         val type = when {
             path.isVideoFast() -> TYPE_VIDEOS
             path.isGif() -> TYPE_GIFS
@@ -1269,6 +1275,35 @@ fun Context.addPathToDB(path: String) {
         }
 
         try {
+            val file = File(path)
+            val size = file.length()
+            // FastGallery (fast16): real dates, never "now". Upstream stamped System.currentTimeMillis() here and let the
+            // next full scan fix it; the fork's scan cache keeps rows, so old photos that another app touched (Google
+            // Photos restoring from its trash) were dated today and sat on top of Camera (10-06-2026).
+            var mediaStoreModified: Long? = null
+            var mediaStoreTaken: Long? = null
+            try {
+                val projection = arrayOf(Images.Media.DATE_MODIFIED, Images.Media.DATE_TAKEN)
+                contentResolver.query(Files.getContentUri("external"), projection, "${Images.Media.DATA} = ?", arrayOf(path), null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        mediaStoreModified = cursor.getLong(0) * 1000
+                        mediaStoreTaken = cursor.getLong(1)
+                    }
+                }
+            } catch (ignored: Exception) {
+            }
+            val fixedTaken = try {
+                dateTakensDB.getDateTakensFromPath(path.getParentPath()).firstOrNull { it.fullPath == path }?.taken
+            } catch (e: Exception) {
+                null
+            }
+            val (modified, taken) = org.fossify.gallery.helpers.MediaDates.pick(mediaStoreModified, mediaStoreTaken, file.lastModified(), fixedTaken, file.name)
+
+            val existing = mediaDB.getMediumByPath(path)
+            if (existing != null && existing.deletedTS == 0L && existing.size == size && existing.modified == modified && existing.taken == taken) {
+                return@ensureBackgroundThread   // nothing changed: keep the row (and its video duration) as it is
+            }
+
             val isFavorite = favoritesDB.isFavorite(path)
             val videoDuration = if (type == TYPE_VIDEOS) getDuration(path) ?: 0 else 0
             val medium = Medium(
@@ -1276,9 +1311,9 @@ fun Context.addPathToDB(path: String) {
                 name = path.getFilenameFromPath(),
                 path = path,
                 parentPath = path.getParentPath(),
-                modified = System.currentTimeMillis(),
-                taken = System.currentTimeMillis(),
-                size = File(path).length(),
+                modified = modified,
+                taken = taken,
+                size = size,
                 type = type,
                 videoDuration = videoDuration,
                 isFavorite = isFavorite,
