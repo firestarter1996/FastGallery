@@ -84,6 +84,8 @@ class SettingsActivity : SimpleActivity() {
         setupKeepScreenOn()
         setupAllowPhotoGestures()
         setupAllowVideoGestures()
+        setupBackgroundVideoPlayback()
+        setupDoubleTapSeek()
         setupAllowDownGesture()
         setupAllowRotatingWithGestures()
         setupShowNotch()
@@ -512,6 +514,22 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    private fun setupBackgroundVideoPlayback() {
+        binding.settingsBackgroundVideoPlayback.isChecked = config.backgroundVideoPlayback
+        binding.settingsBackgroundVideoPlaybackHolder.setOnClickListener {
+            binding.settingsBackgroundVideoPlayback.toggle()
+            config.backgroundVideoPlayback = binding.settingsBackgroundVideoPlayback.isChecked
+        }
+    }
+
+    private fun setupDoubleTapSeek() {
+        binding.settingsDoubleTapSeek.isChecked = config.doubleTapSeek
+        binding.settingsDoubleTapSeekHolder.setOnClickListener {
+            binding.settingsDoubleTapSeek.toggle()
+            config.doubleTapSeek = binding.settingsDoubleTapSeek.isChecked
+        }
+    }
+
     private fun setupAllowDownGesture() {
         binding.settingsAllowDownGesture.isChecked = config.allowDownGesture
         binding.settingsAllowDownGestureHolder.setOnClickListener {
@@ -933,6 +951,8 @@ class SettingsActivity : SimpleActivity() {
                 put(GESTURE_VIDEO_PLAYER, config.gestureVideoPlayer)
                 put(VIDEO_PLAYER_TYPE, config.videoPlayerType)
                 put(ALLOW_VIDEO_GESTURES, config.allowVideoGestures)
+                put(BACKGROUND_VIDEO_PLAYBACK, config.backgroundVideoPlayback)
+                put(DOUBLE_TAP_SEEK, config.doubleTapSeek)
                 put(ANIMATE_GIFS, config.animateGifs)
                 put(CROP_THUMBNAILS, config.cropThumbnails)
                 put(SHOW_THUMBNAIL_VIDEO_DURATION, config.showThumbnailVideoDuration)
@@ -1079,6 +1099,8 @@ class SettingsActivity : SimpleActivity() {
                 GESTURE_VIDEO_PLAYER -> config.gestureVideoPlayer = value.toBoolean()
                 VIDEO_PLAYER_TYPE -> config.videoPlayerType = value.toInt()
                 ALLOW_VIDEO_GESTURES -> config.allowVideoGestures = value.toBoolean()
+                BACKGROUND_VIDEO_PLAYBACK -> config.backgroundVideoPlayback = value.toBoolean()
+                DOUBLE_TAP_SEEK -> config.doubleTapSeek = value.toBoolean()
                 ANIMATE_GIFS -> config.animateGifs = value.toBoolean()
                 CROP_THUMBNAILS -> config.cropThumbnails = value.toBoolean()
                 SHOW_THUMBNAIL_VIDEO_DURATION -> config.showThumbnailVideoDuration = value.toBoolean()

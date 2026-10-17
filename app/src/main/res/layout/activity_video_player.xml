@@ -59,6 +59,12 @@
         android:layout_width="@dimen/media_side_slider_width"
         android:layout_height="match_parent" />
 
+    <org.fossify.gallery.views.DoubleTapSeekOverlay
+        android:id="@+id/double_tap_seek_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <ImageView
         android:id="@+id/top_shadow"
         android:layout_width="match_parent"

@@ -313,6 +313,36 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/settings_background_video_playback_holder"
+                style="@style/SettingsHolderSwitchStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyMaterialSwitch
+                    android:id="@+id/settings_background_video_playback"
+                    style="@style/SettingsSwitchStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/background_video_playback" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_double_tap_seek_holder"
+                style="@style/SettingsHolderSwitchStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyMaterialSwitch
+                    android:id="@+id/settings_double_tap_seek"
+                    style="@style/SettingsSwitchStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/double_tap_seek" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
                 android:id="@+id/settings_on_video_tap_holder"
                 style="@style/SettingsHolderTextViewStyle"
                 android:layout_width="match_parent"

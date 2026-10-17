@@ -32,6 +32,7 @@ import androidx.core.view.updateLayoutParams
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
@@ -78,6 +79,7 @@ import org.fossify.gallery.extensions.getFormattedDuration
 import org.fossify.gallery.extensions.getFriendlyMessage
 import org.fossify.gallery.extensions.launchGesturePlayer
 import org.fossify.gallery.extensions.parseFileChannel
+import org.fossify.gallery.helpers.BackgroundPlayback
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.helpers.EXOPLAYER_MAX_BUFFER_MS
 import org.fossify.gallery.helpers.EXOPLAYER_MIN_BUFFER_MS
@@ -86,6 +88,7 @@ import org.fossify.gallery.helpers.MEDIUM
 import org.fossify.gallery.helpers.SHOULD_INIT_FRAGMENT
 import org.fossify.gallery.interfaces.PlaybackSpeedListener
 import org.fossify.gallery.models.Medium
+import org.fossify.gallery.views.DoubleTapSeeker
 import org.fossify.gallery.views.MediaSideScroll
 import java.io.File
 import java.io.FileInputStream
@@ -130,6 +133,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private var mOriginalPlaybackSpeed = 1f
     private var mIsLongPressActive = false
     private var mHasAudio = true
+
+    // fast17: YouTube style double tap seeking and screen off playback
+    private var mSeeker: DoubleTapSeeker? = null
+    private var mTapUpConsumed = false
+    private var mPlayingInBackground = false
 
     private val mTouchHoldRunnable = Runnable {
         mView.parent.requestDisallowInterceptTouchEvent(true)
@@ -212,9 +220,37 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             mTextureView = videoSurface
             mTextureView.surfaceTextureListener = this@VideoFragment
 
+            mSeeker = DoubleTapSeeker(
+                overlay = doubleTapSeekOverlay,
+                stepMs = FAST_FORWARD_VIDEO_MS.toLong(),
+                viewWidth = { root.width },
+                seekBy = { delta -> seekBy(delta) },
+            )
+
             val gestureDetector =
                 GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+                    override fun onDown(e: MotionEvent): Boolean {
+                        mTapUpConsumed = false
+                        return super.onDown(e)
+                    }
+
+                    override fun onSingleTapUp(e: MotionEvent): Boolean {
+                        // fast17: while the seek overlay is up every tap on a side keeps seeking (YouTube behaviour)
+                        val seeker = mSeeker
+                        if (mConfig.doubleTapSeek && seeker != null && seeker.isActive()) {
+                            seeker.tap(seeker.zoneOf(e.rawX), e.rawX, e.rawY)
+                            mTapUpConsumed = true
+                            return true
+                        }
+                        return false
+                    }
+
                     override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                        if (mTapUpConsumed) {
+                            mTapUpConsumed = false
+                            return true
+                        }
+
                         if (!mConfig.allowInstantChange) {
                             toggleFullscreen()
                             return true
@@ -232,7 +268,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     }
 
                     override fun onDoubleTap(e: MotionEvent): Boolean {
-                        handleDoubleTap(e.rawX)
+                        handleDoubleTap(e.rawX, e.rawY)
                         return true
                     }
                 })
@@ -323,14 +359,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     true,
                     container,
                     singleTap = { x, y ->
-                        if (mConfig.allowInstantChange) {
-                            listener?.goToPrevItem()
-                        } else {
-                            toggleFullscreen()
+                        if (!sideTapWhileSeeking(false, x, y)) {
+                            if (mConfig.allowInstantChange) {
+                                listener?.goToPrevItem()
+                            } else {
+                                toggleFullscreen()
+                            }
                         }
                     },
                     doubleTap = { x, y ->
-                        doSkip(false)
+                        doubleTapSeek(false, x, y)
                     })
                 mVolumeSideScroll.initialize(
                     activity,
@@ -338,14 +376,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     false,
                     container,
                     singleTap = { x, y ->
-                        if (mConfig.allowInstantChange) {
-                            listener?.goToNextItem()
-                        } else {
-                            toggleFullscreen()
+                        if (!sideTapWhileSeeking(true, x, y)) {
+                            if (mConfig.allowInstantChange) {
+                                listener?.goToNextItem()
+                            } else {
+                                toggleFullscreen()
+                            }
                         }
                     },
                     doubleTap = { x, y ->
-                        doSkip(true)
+                        doubleTapSeek(true, x, y)
                     })
 
                 videoSurface.onGlobalLayout {
@@ -379,15 +419,37 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         checkExtendedDetails()
         initTimeHolder()
         storeStateVariables()
+
+        if (mPlayingInBackground) {
+            // fast17: back from the screen off / background stretch: give the player its picture back
+            mPlayingInBackground = false
+            mTextureView.surfaceTexture?.let { mExoPlayer?.setVideoSurface(Surface(it)) }
+            if (mIsPlaying) {
+                activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     override fun onPause() {
         super.onPause()
         storeStateVariables()
-        pauseVideo()
+        if (shouldKeepPlayingInBackground()) {
+            // fast17: screen off or app in the background: audio and position carry on under the media session;
+            // the picture is detached so the decoder never waits on a TextureView nobody is drawing
+            mPlayingInBackground = true
+            mExoPlayer?.clearVideoSurface()
+        } else {
+            pauseVideo()
+        }
         if (mStoredRememberLastVideoPosition && mIsFragmentVisible && mWasVideoStarted) {
             saveVideoProgress()
         }
+    }
+
+    private fun shouldKeepPlayingInBackground(): Boolean {
+        val activity = activity ?: return false
+        return mConfig.backgroundVideoPlayback && mIsPlaying && mIsFragmentVisible && mExoPlayer != null &&
+            !activity.isFinishing && !activity.isChangingConfigurations && BackgroundPlayback.player === mExoPlayer
     }
 
     override fun onDestroy() {
@@ -401,6 +463,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         super.setMenuVisibility(menuVisible)
         if (mIsFragmentVisible && !menuVisible) {
             pauseVideo()
+            // fast17: swiped away from this video: its notification goes too
+            mExoPlayer?.let { BackgroundPlayback.onPlayerReleasing(it) }
         }
 
         mIsFragmentVisible = menuVisible
@@ -494,8 +558,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         val factory = DataSource.Factory { fileDataSource }
+        val mediaItem = MediaItem.Builder()
+            .setUri(fileDataSource.uri!!)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(mMedium.name).build())
+            .build()
         val mediaSource: MediaSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(fileDataSource.uri!!))
+            .createMediaSource(mediaItem)
 
         fileDataSource.close()
 
@@ -511,10 +579,14 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        // fast17: WAKE_MODE_LOCAL keeps the CPU awake for screen off playback; audio focus is handled so the video
+        // pauses for a call or another player and the others pause for it
+        val backgroundPlayback = mConfig.backgroundVideoPlayback
         mExoPlayer = ExoPlayer.Builder(requireContext())
             .setMediaSourceFactory(DefaultMediaSourceFactory(requireContext()))
             .setSeekParameters(SeekParameters.EXACT)
             .setLoadControl(loadControl)
+            .setWakeMode(if (backgroundPlayback) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NONE)
             .build()
             .apply {
                 if (mConfig.loopVideos && listener?.isSlideShowActive() == false) {
@@ -525,8 +597,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 setAudioAttributes(
                     AudioAttributes
                         .Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(), false
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(if (backgroundPlayback) C.AUDIO_CONTENT_TYPE_MOVIE else C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(), backgroundPlayback
                 )
                 prepare()
 
@@ -558,6 +631,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 when (playbackState) {
                     Player.STATE_READY -> videoPrepared()
                     Player.STATE_ENDED -> videoCompleted()
+                }
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // fast17: the media notification, a headset button or audio focus changed playback outside the UI
+                if (!mIsPlayerPrepared || activity == null || !isAdded) return
+                if (playWhenReady && !mIsPlaying && !videoEnded()) {
+                    playVideo()
+                } else if (!playWhenReady && mIsPlaying) {
+                    pauseVideo()
                 }
             }
 
@@ -594,7 +677,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         listener?.fragmentClicked()
     }
 
-    private fun handleDoubleTap(x: Float) {
+    private fun handleDoubleTap(x: Float, y: Float) {
+        val seeker = mSeeker
+        if (mConfig.doubleTapSeek && seeker != null) {
+            // fast17: thirds, like YouTube: left back, right forward, middle play/pause
+            if (!seeker.tap(seeker.zoneOf(x), x, y)) {
+                togglePlayPause()
+            }
+            return
+        }
+
         val viewWidth = mView.width
         val instantWidth = viewWidth / 7
         when {
@@ -602,6 +694,31 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             x >= viewWidth - instantWidth -> doSkip(true)
             else -> togglePlayPause()
         }
+    }
+
+    /** fast17: a double tap on one of the side sliders (volume / brightness strips). */
+    private fun doubleTapSeek(forward: Boolean, rawX: Float, rawY: Float) {
+        val seeker = mSeeker
+        if (mConfig.doubleTapSeek && seeker != null) {
+            seeker.seek(forward, rawX, rawY)
+        } else {
+            doSkip(forward)
+        }
+    }
+
+    /** fast17: a single tap on a side slider while the seek overlay is up keeps seeking. Returns true when consumed. */
+    private fun sideTapWhileSeeking(forward: Boolean, rawX: Float, rawY: Float): Boolean {
+        val seeker = mSeeker ?: return false
+        if (!mConfig.doubleTapSeek || !seeker.isActive()) return false
+        seeker.seek(forward, rawX, rawY)
+        return true
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        val player = mExoPlayer ?: return
+        val duration = maxOf(player.duration, 0)
+        val newPosition = (player.currentPosition + deltaMs).coerceIn(0, duration)
+        setPosition(newPosition)
     }
 
     private fun checkExtendedDetails() {
@@ -835,6 +952,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
         mExoPlayer?.playWhenReady = true
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // fast17: media session + foreground service start here, on the first real play, never earlier
+        val player = mExoPlayer
+        val host = activity
+        if (player != null && host != null) {
+            BackgroundPlayback.onPlaybackStarted(host, player)
+        }
     }
 
     private fun pauseVideo() {
@@ -936,7 +1060,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     private fun releaseExoPlayer() {
         mIsPlayerPrepared = false
+        mPlayingInBackground = false
         mExoPlayer?.apply {
+            BackgroundPlayback.onPlayerReleasing(this)
             stop()
             release()
         }

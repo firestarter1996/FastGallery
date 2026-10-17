@@ -222,9 +222,26 @@ class Config(context: Context) : BaseConfig(context) {
         set(gestureVideoPlayer) = prefs.edit().putBoolean(GESTURE_VIDEO_PLAYER, gestureVideoPlayer)
             .apply()
 
+    // fast17: upstream fell back to the SYSTEM player (a VIEW intent) whenever this pref was never set on an install
+    // older than its first run. The in app player is where screen off playback and double tap seeking live, so an
+    // unset pref now means the in app player. A value the user picked in Settings still wins.
     var videoPlayerType: Int
-        get() = prefs.getInt(VIDEO_PLAYER_TYPE, if (appRunCount <= 1) VIDEO_PLAYER_APP else VIDEO_PLAYER_SYSTEM)
+        get() = prefs.getInt(VIDEO_PLAYER_TYPE, VIDEO_PLAYER_APP)
         set(videoPlayerType) = prefs.edit().putInt(VIDEO_PLAYER_TYPE, videoPlayerType).apply()
+
+    // fast17: keep a playing video going (audio and position) when the screen turns off or the app goes to the background
+    var backgroundVideoPlayback: Boolean
+        get() = prefs.getBoolean(BACKGROUND_VIDEO_PLAYBACK, true)
+        set(value) = prefs.edit().putBoolean(BACKGROUND_VIDEO_PLAYBACK, value).apply()
+
+    // fast17: YouTube style double tap: left third back 10 s, right third forward 10 s, repeated taps stack
+    var doubleTapSeek: Boolean
+        get() = prefs.getBoolean(DOUBLE_TAP_SEEK, true)
+        set(value) = prefs.edit().putBoolean(DOUBLE_TAP_SEEK, value).apply()
+
+    var playbackNotificationAsked: Boolean
+        get() = prefs.getBoolean(PLAYBACK_NOTIFICATION_ASKED, false)
+        set(value) = prefs.edit().putBoolean(PLAYBACK_NOTIFICATION_ASKED, value).apply()
 
     var displayFileNames: Boolean
         get() = prefs.getBoolean(DISPLAY_FILE_NAMES, false)

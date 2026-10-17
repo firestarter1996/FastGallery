@@ -35,6 +35,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
@@ -78,6 +79,8 @@ import org.fossify.gallery.extensions.shareMediumPath
 import org.fossify.gallery.extensions.showSystemUI
 import org.fossify.gallery.fragments.PlaybackSpeedFragment
 import org.fossify.gallery.helpers.DRAG_THRESHOLD
+import org.fossify.gallery.helpers.BackgroundPlayback
+import org.fossify.gallery.views.DoubleTapSeeker
 import org.fossify.gallery.helpers.EXOPLAYER_MAX_BUFFER_MS
 import org.fossify.gallery.helpers.EXOPLAYER_MIN_BUFFER_MS
 import org.fossify.gallery.helpers.FAST_FORWARD_VIDEO_MS
@@ -144,6 +147,11 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     private var mFirstFrameRendered = false
     private var mRevealPending = false
 
+    // fast17: YouTube style double tap seeking and screen off playback
+    private var mSeeker: DoubleTapSeeker? = null
+    private var mTapUpConsumed = false
+    private var mPlayingInBackground = false
+
     public override fun onCreate(savedInstanceState: Bundle?) {
         org.fossify.gallery.helpers.PerfTrace.mark("player_create")
         super.onCreate(savedInstanceState)
@@ -182,15 +190,36 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
         mOriginalBrightness = window.updateBrightness(config.maxBrightness, mOriginalBrightness)
         updateTextColors(binding.videoPlayerHolder)
+
+        if (mPlayingInBackground) {
+            // fast17: back from the screen off / background stretch: give the player its picture back
+            mPlayingInBackground = false
+            binding.videoSurface.surfaceTexture?.let { mExoPlayer?.setVideoSurface(Surface(it)) }
+            if (mIsPlaying) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        pauseVideo()
+        if (shouldKeepPlayingInBackground()) {
+            // fast17: screen off or app in the background: audio and position carry on under the media session;
+            // the picture is detached so the decoder never waits on a TextureView nobody is drawing
+            mPlayingInBackground = true
+            mExoPlayer?.clearVideoSurface()
+        } else {
+            pauseVideo()
+        }
 
         if (config.rememberLastVideoPosition && mWasVideoStarted) {
             saveVideoProgress()
         }
+    }
+
+    private fun shouldKeepPlayingInBackground(): Boolean {
+        return config.backgroundVideoPlayback && mIsPlaying && mExoPlayer != null && !isFinishing &&
+            !isChangingConfigurations && BackgroundPlayback.player === mExoPlayer
     }
 
     override fun onDestroy() {
@@ -307,8 +336,15 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             updatePlayerMuteState(showToast = true)
         }
 
-        binding.videoSurfaceFrame.setOnClickListener { toggleFullscreen() }
+        // fast17: single taps go through the gesture detector (confirmed taps) so a double tap seek does not flip
+        // the controls on its first tap
         binding.videoSurfaceFrame.controller.settings.swallowDoubleTaps = true
+        mSeeker = DoubleTapSeeker(
+            overlay = binding.doubleTapSeekOverlay,
+            stepMs = FAST_FORWARD_VIDEO_MS.toLong(),
+            viewWidth = { binding.doubleTapSeekOverlay.width },
+            seekBy = { delta -> seekBy(delta) },
+        )
 
         binding.bottomVideoTimeHolder.videoNextFile.beVisibleIf(
             intent.getBooleanExtra(
@@ -328,8 +364,33 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
         val gestureDetector =
             GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean {
+                    mTapUpConsumed = false
+                    return super.onDown(e)
+                }
+
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    // fast17: while the seek overlay is up every tap on a side keeps seeking (YouTube behaviour)
+                    val seeker = mSeeker
+                    if (config.doubleTapSeek && seeker != null && seeker.isActive()) {
+                        seeker.tap(seeker.zoneOf(e.rawX), e.rawX, e.rawY)
+                        mTapUpConsumed = true
+                        return true
+                    }
+                    return false
+                }
+
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    if (mTapUpConsumed) {
+                        mTapUpConsumed = false
+                        return true
+                    }
+                    toggleFullscreen()
+                    return true
+                }
+
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    handleDoubleTap(e.rawX)
+                    handleDoubleTap(e.rawX, e.rawY)
                     return true
                 }
             })
@@ -356,10 +417,12 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 true,
                 binding.videoPlayerHolder,
                 singleTap = { x, y ->
-                    toggleFullscreen()
+                    if (!sideTapWhileSeeking(false, x, y)) {
+                        toggleFullscreen()
+                    }
                 },
                 doubleTap = { x, y ->
-                    doSkip(false)
+                    doubleTapSeek(false, x, y)
                 })
 
             binding.videoVolumeController.initialize(
@@ -368,10 +431,12 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 false,
                 binding.videoPlayerHolder,
                 singleTap = { x, y ->
-                    toggleFullscreen()
+                    if (!sideTapWhileSeeking(true, x, y)) {
+                        toggleFullscreen()
+                    }
                 },
                 doubleTap = { x, y ->
-                    doSkip(true)
+                    doubleTapSeek(true, x, y)
                 })
         } else {
             binding.videoBrightnessController.beGone()
@@ -397,8 +462,17 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         }
 
         val factory = DataSource.Factory { fileDataSource }
+        val title = try {
+            getFilenameFromUri(mUri!!)
+        } catch (e: Exception) {
+            ""
+        }
+        val mediaItem = MediaItem.Builder()
+            .setUri(fileDataSource.uri!!)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
+            .build()
         val mediaSource: MediaSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(fileDataSource.uri!!))
+            .createMediaSource(mediaItem)
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -410,10 +484,14 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        // fast17: WAKE_MODE_LOCAL keeps the CPU awake for screen off playback; audio focus is handled so the video
+        // pauses for a call or another player and the others pause for it
+        val backgroundPlayback = config.backgroundVideoPlayback
         mExoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(applicationContext))
             .setSeekParameters(SeekParameters.EXACT)
             .setLoadControl(loadControl)
+            .setWakeMode(if (backgroundPlayback) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NONE)
             .build()
             .apply {
                 setPlaybackSpeed(config.playbackSpeed)
@@ -421,8 +499,9 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 setAudioAttributes(
                     AudioAttributes
                         .Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(), false
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(if (backgroundPlayback) C.AUDIO_CONTENT_TYPE_MOVIE else C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(), backgroundPlayback
                 )
                 if (config.loopVideos) {
                     repeatMode = Player.REPEAT_MODE_ONE
@@ -452,6 +531,16 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 org.fossify.gallery.helpers.PerfTrace.mark("player_first_frame")
                 mFirstFrameRendered = true
                 revealSurfaceAfterLayout()
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // fast17: the media notification, a headset button or audio focus changed playback outside the UI
+                if (!mWasVideoStarted || isFinishing || isDestroyed) return
+                if (playWhenReady && !mIsPlaying && !didVideoEnd()) {
+                    resumeVideo()
+                } else if (!playWhenReady && mIsPlaying) {
+                    pauseVideo()
+                }
             }
 
             override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
@@ -514,13 +603,47 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         }
     }
 
-    private fun handleDoubleTap(x: Float) {
+    private fun handleDoubleTap(x: Float, y: Float) {
+        val seeker = mSeeker
+        if (config.doubleTapSeek && seeker != null) {
+            // fast17: thirds, like YouTube: left back, right forward, middle play/pause
+            if (!seeker.tap(seeker.zoneOf(x), x, y)) {
+                togglePlayPause()
+            }
+            return
+        }
+
         val instantWidth = mScreenWidth / 7
         when {
             x <= instantWidth -> doSkip(false)
             x >= mScreenWidth - instantWidth -> doSkip(true)
             else -> togglePlayPause()
         }
+    }
+
+    /** fast17: a double tap on one of the side sliders (volume / brightness strips). */
+    private fun doubleTapSeek(forward: Boolean, rawX: Float, rawY: Float) {
+        val seeker = mSeeker
+        if (config.doubleTapSeek && seeker != null) {
+            seeker.seek(forward, rawX, rawY)
+        } else {
+            doSkip(forward)
+        }
+    }
+
+    /** fast17: a single tap on a side slider while the seek overlay is up keeps seeking. Returns true when consumed. */
+    private fun sideTapWhileSeeking(forward: Boolean, rawX: Float, rawY: Float): Boolean {
+        val seeker = mSeeker ?: return false
+        if (!config.doubleTapSeek || !seeker.isActive()) return false
+        seeker.seek(forward, rawX, rawY)
+        return true
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        val player = mExoPlayer ?: return
+        val duration = maxOf(player.duration, 0)
+        val newPosition = (player.currentPosition + deltaMs).coerceIn(0, duration)
+        setPosition(newPosition)
     }
 
     private fun resumeVideo() {
@@ -538,6 +661,9 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         mIsPlaying = true
         mExoPlayer?.playWhenReady = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // fast17: media session + foreground service start here, on the first real play, never earlier
+        mExoPlayer?.let { BackgroundPlayback.onPlaybackStarted(this, it) }
     }
 
     private fun pauseVideo() {
@@ -882,7 +1008,9 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     private fun releaseExoPlayer() {
+        mPlayingInBackground = false
         mExoPlayer?.apply {
+            BackgroundPlayback.onPlayerReleasing(this)
             stop()
             release()
         }
