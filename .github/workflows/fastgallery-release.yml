@@ -35,7 +35,9 @@ jobs:
         run: |
           BASE=$(grep -oP '^VERSION_NAME=\K.*' gradle.properties | sed 's/-fast.*//')
           sed -i "s/^VERSION_CODE=.*/VERSION_CODE=$((2800 + GITHUB_RUN_NUMBER))/" gradle.properties
-          sed -i "s/^VERSION_NAME=.*/VERSION_NAME=${BASE}-fast${GITHUB_RUN_NUMBER}/" gradle.properties
+          # 10-24-2026: keep the label from gradle.properties when it already carries a fastN tag (the branch name is
+          # the build's name on the phones); only an untagged version gets the run number
+          grep -qE '^VERSION_NAME=.*-fast[0-9]+' gradle.properties || sed -i "s/^VERSION_NAME=.*/VERSION_NAME=${BASE}-fast${GITHUB_RUN_NUMBER}/" gradle.properties
           grep -E '^VERSION_' gradle.properties
       - name: Build signed FOSS release
         env:
