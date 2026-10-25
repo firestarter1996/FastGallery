@@ -55,10 +55,11 @@ pm uninstall org.fossify.gallery
 pm install -g -r FastGallery-*.apk
 appops set org.fossify.gallery MANAGE_EXTERNAL_STORAGE allow
 am force-stop org.fossify.gallery
+U=$(stat -c %u /data/data/org.fossify.gallery)
 rm -rf /data/data/org.fossify.gallery/{shared_prefs,databases,files,no_backup}
 tar -C /data/data -xf /data/local/tmp/gallery-data.tar
-chown -R $(stat -c %U /data/data/org.fossify.gallery) /data/data/org.fossify.gallery
-restorecon -R /data/data/org.fossify.gallery
+chown -R $U:$U /data/data/org.fossify.gallery
+restorecon -RF /data/data/org.fossify.gallery
 ```
 
 ## Building
