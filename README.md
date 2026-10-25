@@ -8,7 +8,7 @@ Latest release: [v18](https://github.com/firestarter1996/FastGallery/releases/la
 
 ## What is different
 
-| Problem in stock Fossify Gallery | FastGallery |
+| Problem in stock Fossify Gallery | FastGallery v18 |
 |---|---|
 | Every launch and every folder open re walked the folder on disk (17k files in Camera, 20k in Screenshots) before showing anything current | A per folder signature (directory mtime + cached row count + scan options) lets unchanged folders load straight from the app's own database. The album list, the album screen and the file pickers share that cache. Pull to refresh still forces a full rescan. |
 | Thumbnail disk cache capped at 250 MB in `cache/`, so a big library re decoded full photos on every scroll, and Android emptied the cache under storage pressure | Thumbnail cache raised to 4 GB and moved to `no_backup/`. A nightly job (on by default, from midnight while charging) renders every visible album's thumbnails into it. |
@@ -28,29 +28,21 @@ Latest release: [v18](https://github.com/firestarter1996/FastGallery/releases/la
 
 Videos open in the app's own player unless you pick another one; upstream switched to the system player after the first run.
 
-### Measured on fast5 (Pixel 8 Pro, 68k files, cold start, median ms since process start, 09-26-2026)
+### Measured: stock Fossify Gallery against FastGallery v18 (Pixel 6 Pro, 7,463 photos and videos, cold start, median of 9 runs in ms, 10-25-2026)
 
-These numbers compare 1.13.1-fast4 with fast5 and were not measured again on later builds.
+Stock is the official Fossify Gallery 1.13.1 release APK, the upstream version FastGallery is built on. FastGallery is the v18 release APK. Each was a fresh install with the same permissions, finished its first full scan, and was compiled with the speed profile before timing.
 
-| | 1.13.1-fast4 | fast5 |
+| | Fossify Gallery 1.13.1 | FastGallery v18 |
 |---|---|---|
-| Albums displayed (first frame with the album grid) | 864 | 224 |
-| Each visible album's cover drawn (median over the 10 visible albums) | 973 | 350 |
-| All visible covers drawn | 1047 | 362 |
-| Same three after dropping the page cache | 3564 / 3710 / 3768 | 362 / 496 / 537 |
-| A new photo shows up as its album's cover | 16159 | 1673 |
+| First frame after the tap | 64 (splash logo) | 205 (album grid with its covers) |
+| Album grid and covers fully drawn and still | 557 | 239 |
+| Same two after dropping the page cache | 68 (splash logo) / 856 | 274 / 302 |
+| Android launch time (`am start -W` TotalTime) | 164 (first frame of an empty album list) | 167 (album grid drawn, `reportFullyDrawn`) |
+| Same after dropping the page cache | 228 | 219 |
 
-Measured with `scripts/perf/measure_startup.py` (reads the app's `FGPerf` logcat markers; `reportFullyDrawn` marks the album grid). Creating `files/perf_legacy` in the app's data dir switches the optimisations off for A/B runs.
+Stock shows its splash logo, then an empty album list, then the album names, and then fades the covers in. FastGallery draws the album grid with its covers in its first frame.
 
-### Measured on fast15 against fast14 (Pixel 6 Pro, real screen, median ms, 10-04-2026)
-
-| | fast14 | fast15 |
-|---|---|---|
-| Photo never opened before: tap to picture | 156 | 75 |
-| Photo opened before: tap to picture | 176 | 86 |
-| Back to the album: album settled | 144 | 53 |
-
-The flag files `files/perf_viewer_anim` and `files/perf_viewer_close_anim` bring the open and close animations back for benchmarks. The full measurement history, from stock through fast15, is in [FastGallery.md](FastGallery.md).
+The screen times come from a screen recording of each launch (`scripts/perf/launch_frames_record.py` and `launch_frames_analyze.py`, counted from Android's launch start); the launch times come from `scripts/perf/measure_startup.py`. Creating `files/perf_legacy` in the app's data dir switches the optimisations off for A/B runs, and the flag files `files/perf_viewer_anim` and `files/perf_viewer_close_anim` bring the photo viewer's open and close animations back. The full measurement history is in [FastGallery.md](FastGallery.md).
 
 Apart from the changes above and their settings, everything (features, settings, package name `org.fossify.gallery`) is stock, so it drops in over the original with your settings, pinned folders and favorites intact. Because it is signed with its own key you must uninstall the F-Droid/Obtainium build first (back up its data if you want to keep it, see below), and updates then come from this repo's Releases (Obtainium: add `https://github.com/firestarter1996/FastGallery`).
 
