@@ -8,7 +8,7 @@ Latest release: [v18](https://github.com/firestarter1996/FastGallery/releases/la
 
 ## What is different
 
-| Problem in stock Fossify Gallery | FastGallery v21 |
+| Problem in stock Fossify Gallery | FastGallery v19 |
 |---|---|
 | Every launch and every folder open re walked the folder on disk (17k files in Camera, 20k in Screenshots) before showing anything current | A per folder signature (directory mtime + cached row count + scan options) lets unchanged folders load straight from the app's own database. The album list, the album screen and the file pickers share that cache. Pull to refresh still forces a full rescan. |
 | Thumbnail disk cache capped at 250 MB in `cache/`, so a big library re decoded full photos on every scroll, and Android emptied the cache under storage pressure | Thumbnail cache raised to 4 GB and moved to `no_backup/`. A nightly job (on by default, from midnight while charging) renders every visible album's thumbnails into it. |
