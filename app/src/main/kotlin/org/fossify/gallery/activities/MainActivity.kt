@@ -111,6 +111,7 @@ import org.fossify.gallery.extensions.handleMediaManagementPrompt
 import org.fossify.gallery.extensions.isDownloadsFolder
 import org.fossify.gallery.extensions.launchAbout
 import org.fossify.gallery.extensions.launchCamera
+import org.fossify.gallery.helpers.BottomTabs
 import org.fossify.gallery.extensions.launchSettings
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.movePathsInRecycleBin
@@ -173,6 +174,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         private const val LAST_MEDIA_CHECK_PERIOD = 3000L
     }
 
+    private var mBottomTabs: BottomTabs? = null
     private var mIsPickImageIntent = false
     private var mIsPickVideoIntent = false
     private var mIsGetImageContentIntent = false
@@ -264,6 +266,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setupEdgeToEdge(
             padBottomImeAndSystem = listOf(binding.directoriesGrid)
         )
+        setupBottomTabs()
 
         binding.directoriesRefreshLayout.setOnRefreshListener { getDirectories() }
         storeStateVariables()
@@ -385,6 +388,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         super.onResume()
         mPollAllowed = true
         updateMenuColors()
+        mBottomTabs?.applyColors()
         config.isThirdPartyIntent = false
         mDateFormat = config.dateFormat
         mTimeFormat = getTimeFormat()
@@ -564,6 +568,39 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    // fast21: floating bottom bar (Camera, Gallery, Search, Settings); hidden when another app is picking a file
+    private fun setupBottomTabs() {
+        val tabs = BottomTabs(binding.mainBottomBar, binding.directoriesGrid)
+        mBottomTabs = tabs
+        tabs.setup(visible = !mIsThirdPartyIntent && !PerfTrace.noBottomBar) { index ->
+            when (index) {
+                0 -> launchCamera()
+                1 -> {
+                    if (binding.mainMenu.isSearchOpen) binding.mainMenu.closeSearch()
+                    binding.directoriesGrid.scrollToPosition(0)
+                    tabs.select(1)
+                }
+                2 -> {
+                    tabs.select(2)
+                    binding.mainMenu.focusView()
+                    // the tab tap leaves the keyboard closed: open it on the search field like a tap on the field does
+                    binding.mainMenu.post {
+                        try {
+                            val field = currentFocus ?: binding.mainMenu.findFocus()
+                            if (field != null) {
+                                val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                3 -> launchSettings()
+            }
+        }
+        binding.mainMenu.onSearchClosedListener = { tabs.select(1) }
+    }
+
     private fun setupOptionsMenu() {
         val menuId = if (mIsThirdPartyIntent) {
             R.menu.menu_main_intent
@@ -576,6 +613,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.mainMenu.setupMenu()
 
         binding.mainMenu.onSearchOpenListener = {
+            mBottomTabs?.select(2)
             if (config.searchAllFilesByDefault) {
                 launchSearchActivity()
             }

@@ -112,6 +112,8 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     private var mIsPlaying = false
     private var mWasVideoStarted = false
     private var mIsDragged = false
+    // fast19: true while a swipe or seek bar drag holds playback; the player listener must not read that hold as a pause
+    private var mSeekHold = false
     private var mIsOrientationLocked = false
     private var mHasAudio = true
     private var mScreenWidth = 0
@@ -536,6 +538,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // fast17: the media notification, a headset button or audio focus changed playback outside the UI
                 if (!mWasVideoStarted || isFinishing || isDestroyed) return
+                if (mSeekHold) return
                 if (playWhenReady && !mIsPlaying && !didVideoEnd()) {
                     resumeVideo()
                 } else if (!playWhenReady && mIsPlaying) {
@@ -974,6 +977,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
                     if (!mIsPlaying) {
                         mPlayWhenReadyHandler.removeCallbacksAndMessages(null)
+                        mSeekHold = false
                     }
                 }
                 mIsDragged = false
@@ -998,12 +1002,15 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     private fun resetPlayWhenReady() {
+        mSeekHold = true
         mExoPlayer?.playWhenReady = false
         mPlayWhenReadyHandler.removeCallbacksAndMessages(null)
         mPlayWhenReadyHandler.postDelayed({
+            // fast19: a video that was playing keeps playing after the seek; a paused one stays paused
             if (mIsPlaying) {
                 mExoPlayer?.playWhenReady = true
             }
+            mSeekHold = false
         }, PLAY_WHEN_READY_DRAG_DELAY)
     }
 
@@ -1032,12 +1039,12 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         if (mExoPlayer == null)
             return
 
+        mPlayWhenReadyHandler.removeCallbacksAndMessages(null)
         if (mIsPlaying) {
             mExoPlayer!!.playWhenReady = true
-        } else {
-            mPlayWhenReadyHandler.removeCallbacksAndMessages(null)
         }
 
+        mSeekHold = false
         mIsDragged = false
     }
 

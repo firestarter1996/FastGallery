@@ -93,6 +93,39 @@ object VideoPoster {
         }
     }
 
+    /**
+     * fast20: the grid thumbnail of [medium] as a stand in for the viewer's video page, drawn at the video's real
+     * displayed size. Cache only (memory or the thumbnail disk cache), never decodes the video. [onReady] runs on the
+     * main thread, or never.
+     */
+    fun pagePlaceholder(activity: Activity, medium: Medium, onReady: (Drawable) -> Unit) {
+        val started = PerfTrace.sinceStart()
+        ensureBackgroundThread {
+            val (w, h) = displayedSize(activity, medium.path) ?: return@ensureBackgroundThread
+            val spec = ThumbSizes.get(activity, "media:${medium.parentPath}") ?: ThumbSizes.get(activity, "media")
+            if (spec == null || spec.round != ROUNDED_CORNERS_NONE) return@ensureBackgroundThread
+            activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                activity.buildThumbnailRequest(
+                    path = medium.path,
+                    cropThumbnails = spec.crop,
+                    roundCorners = spec.round,
+                    signature = medium.getKey(),
+                    animate = spec.animate
+                ).onlyRetrieveFromCache(true)
+                    .into(object : CustomTarget<Drawable>(spec.width, spec.height) {
+                        override fun onResourceReady(resource: Drawable, transition: Transition<in Drawable>?) {
+                            val bmp = (resource as? BitmapDrawable)?.bitmap ?: return
+                            PerfTrace.mark("video_placeholder", "took=${PerfTrace.sinceStart() - started} ${w}x$h crop=${spec.crop} ${medium.name}")
+                            onReady(ViewerPlaceholderDrawable(bmp, w, h, spec.crop))
+                        }
+
+                        override fun onLoadCleared(placeholder: Drawable?) {}
+                    })
+            }
+        }
+    }
+
     /** the video's displayed size (rotation applied), from MediaStore (one indexed row, a few ms) */
     private fun displayedSize(context: Context, path: String): Pair<Int, Int>? {
         return try {

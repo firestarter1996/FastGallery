@@ -33,7 +33,17 @@ object PerfTrace {
             false
         }
         if (legacy) mark("legacy_mode")
+        noBottomBar = try {
+            java.io.File(context.filesDir, "perf_no_bottom_bar").exists()
+        } catch (e: Exception) {
+            false
+        }
     }
+
+    /** Benchmark switch for the fast21 bottom bar: files/perf_no_bottom_bar hides it (before and after numbers). */
+    @Volatile
+    var noBottomBar = false
+        private set
 
     @Volatile
     var gridDrawn = false

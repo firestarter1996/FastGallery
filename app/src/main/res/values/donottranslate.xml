@@ -7,4 +7,8 @@
     <string name="package_name">org.fossify.gallery</string>
     <string name="playback_speed_display_text">2x >></string>
     <string name="nightly_thumbnail_preload">Pre-load all thumbnails overnight while charging</string>
+    <string name="fg_tab_camera">Camera</string>
+    <string name="fg_tab_gallery">Gallery</string>
+    <string name="fg_tab_search">Search</string>
+    <string name="fg_tab_settings">Settings</string>
 </resources>

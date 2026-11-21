@@ -48,7 +48,16 @@ import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import android.graphics.drawable.Drawable
 import com.bumptech.glide.Glide
+import com.bumptech.glide.Priority
+import com.bumptech.glide.load.DataSource as GlideDataSource
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
+import org.fossify.gallery.helpers.PerfTrace
+import org.fossify.gallery.helpers.VideoPoster
+import org.fossify.gallery.helpers.VideoPreviewGate
 import org.fossify.commons.extensions.beGone
 import org.fossify.commons.extensions.beGoneIf
 import org.fossify.commons.extensions.beVisible
@@ -110,6 +119,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private var mIsPanorama = false
     private var mIsFragmentVisible = false
     private var mIsDragged = false
+    private var mPreviewReady = false
+    // fast19: true while the seek bar holds playback for a drag; the player listener must not read that hold as a pause
+    private var mSeekHold = false
     private var mWasVideoStarted = false
     private var mWasPlayerInited = false
     private var mWasLastPositionRestored = false
@@ -316,12 +328,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         storeStateVariables()
-        Glide.with(context).load(mMedium.path).into(binding.videoPreview)
 
         // setMenuVisibility is not called at VideoActivity (third party intent)
         if (!mIsFragmentVisible && activity is VideoActivity) {
             mIsFragmentVisible = true
         }
+        loadPreview()
 
         mIsFullscreen = listener?.isFullScreen() == true
         initTimeHolder()
@@ -454,8 +466,81 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     override fun onDestroy() {
         super.onDestroy()
+        VideoPreviewGate.done(this)
         if (activity?.isChangingConfigurations == false) {
             cleanup()
+        }
+    }
+
+    /**
+     * fast20: the still picture a video page shows before it plays. Upstream started a screen sized frame decode of
+     * the original file for the open page and its four neighbours at once, with nothing on screen until its own decode
+     * finished: slow exactly for new 4K videos, which are not in the cache yet. Now the grid thumbnail the user just
+     * saw is drawn at once, the open page decodes first and the neighbours follow one at a time (VideoPreviewGate).
+     * A page that is about to autoplay skips the decode: the player's first frame replaces the thumbnail.
+     * Benchmark switch: files/perf_video_preview_legacy brings the upstream behaviour back.
+     */
+    private fun loadPreview() {
+        val ctx = context ?: return
+        val host = activity ?: return
+        val started = PerfTrace.sinceStart()
+        val visibleAtStart = mIsFragmentVisible
+        PerfTrace.mark("video_view_created", "vis=$visibleAtStart ${mMedium.name}")
+        if (File(ctx.filesDir, "perf_video_preview_legacy").exists()) {
+            Glide.with(ctx).load(mMedium.path).listener(previewListener(started, "legacy", false)).into(binding.videoPreview)
+            return
+        }
+
+        VideoPoster.pagePlaceholder(host, mMedium) { placeholder ->
+            if (!mPreviewReady && isAdded && this::binding.isInitialized && binding.videoPreview.isVisible()) {
+                binding.videoPreview.setImageDrawable(placeholder)
+                PerfTrace.mark("video_placeholder_set", mMedium.name)
+            }
+        }
+
+        val willAutoplay = mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
+        if (visibleAtStart && !willAutoplay) {
+            VideoPreviewGate.takeNow(this)
+            startPreviewDecode(started, "open", Priority.IMMEDIATE)
+        } else if (!visibleAtStart) {
+            // posted: every page of this pager pass is created first, so the open page takes the gate before the neighbours ask
+            binding.videoPreview.post {
+                if (isAdded && this::binding.isInitialized) {
+                    VideoPreviewGate.whenFree(this) { startPreviewDecode(started, "neighbour", Priority.LOW) }
+                }
+            }
+        }
+    }
+
+    private fun startPreviewDecode(started: Long, kind: String, priority: Priority) {
+        val ctx = context
+        if (ctx == null || !isAdded || !this::binding.isInitialized || mPreviewReady || !binding.videoPreview.isVisible()) {
+            VideoPreviewGate.done(this)
+            return
+        }
+
+        val current = binding.videoPreview.drawable
+        Glide.with(ctx)
+            .load(mMedium.path)
+            .priority(priority)
+            .placeholder(current)
+            .listener(previewListener(started, kind, true))
+            .into(binding.videoPreview)
+    }
+
+    private fun previewListener(started: Long, kind: String, gated: Boolean) = object : RequestListener<Drawable> {
+        override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+            if (gated) VideoPreviewGate.done(this@VideoFragment)
+            return false
+        }
+
+        override fun onResourceReady(
+            resource: Drawable, model: Any, target: Target<Drawable>, dataSource: GlideDataSource, isFirstResource: Boolean
+        ): Boolean {
+            mPreviewReady = true
+            PerfTrace.mark("video_preview_ready", "took=${PerfTrace.sinceStart() - started} kind=$kind src=${dataSource.name} vis=$mIsFragmentVisible ${mMedium.name}")
+            if (gated) VideoPreviewGate.done(this@VideoFragment)
+            return false
         }
     }
 
@@ -467,9 +552,18 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             mExoPlayer?.let { BackgroundPlayback.onPlayerReleasing(it) }
         }
 
+        val becameVisible = menuVisible && !mIsFragmentVisible
         mIsFragmentVisible = menuVisible
         val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
         if (shouldPlayVideo) playVideo()
+
+        // fast20: swiped onto a page whose picture is still waiting its turn: it goes first now
+        if (becameVisible && mWasFragmentInit && !shouldPlayVideo && !mPreviewReady && mExoPlayer == null &&
+            context?.let { !File(it.filesDir, "perf_video_preview_legacy").exists() } == true
+        ) {
+            VideoPreviewGate.takeNow(this)
+            startPreviewDecode(PerfTrace.sinceStart(), "swiped", Priority.IMMEDIATE)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -637,6 +731,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // fast17: the media notification, a headset button or audio focus changed playback outside the UI
                 if (!mIsPlayerPrepared || activity == null || !isAdded) return
+                if (mSeekHold) return
                 if (playWhenReady && !mIsPlaying && !videoEnded()) {
                     playVideo()
                 } else if (!playWhenReady && mIsPlaying) {
@@ -862,6 +957,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             return
         }
 
+        mSeekHold = true
         mExoPlayer!!.playWhenReady = false
         mIsDragged = true
     }
@@ -873,13 +969,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         if (mExoPlayer == null) {
+            mSeekHold = false
             return
         }
 
+        // fast19: a video that was playing keeps playing after the seek; a paused one stays paused
         if (mIsPlaying) {
             mExoPlayer!!.playWhenReady = true
         }
 
+        mSeekHold = false
         mIsDragged = false
     }
 
