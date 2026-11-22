@@ -94,6 +94,7 @@ class SettingsActivity : SimpleActivity() {
         setupFolderThumbnailStyle()
         setupKeepLastModified()
         setupNightlyThumbnailPreload()
+        setupBottomBarIconsOnly()
         setupEnablePullToRefresh()
         setupAllowZoomingImages()
         setupShowHighestQuality()
@@ -584,6 +585,14 @@ class SettingsActivity : SimpleActivity() {
                 binding.settingsKeepLastModified.toggle()
                 config.keepLastModified = binding.settingsKeepLastModified.isChecked
             }
+        }
+    }
+
+    private fun setupBottomBarIconsOnly() {
+        binding.settingsBottomBarIconsOnly.isChecked = config.bottomBarIconsOnly
+        binding.settingsBottomBarIconsOnlyHolder.setOnClickListener {
+            binding.settingsBottomBarIconsOnly.toggle()
+            config.bottomBarIconsOnly = binding.settingsBottomBarIconsOnly.isChecked
         }
     }
 

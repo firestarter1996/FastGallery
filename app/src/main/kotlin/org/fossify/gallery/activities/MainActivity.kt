@@ -388,6 +388,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         super.onResume()
         mPollAllowed = true
         updateMenuColors()
+        mBottomTabs?.applyMode(config.bottomBarIconsOnly)
         mBottomTabs?.applyColors()
         config.isThirdPartyIntent = false
         mDateFormat = config.dateFormat
@@ -572,7 +573,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun setupBottomTabs() {
         val tabs = BottomTabs(binding.mainBottomBar, binding.directoriesGrid)
         mBottomTabs = tabs
-        tabs.setup(visible = !mIsThirdPartyIntent && !PerfTrace.noBottomBar) { index ->
+        tabs.setup(visible = !mIsThirdPartyIntent && !PerfTrace.noBottomBar, iconsOnly = config.bottomBarIconsOnly) { index ->
             when (index) {
                 0 -> launchCamera()
                 1 -> {

@@ -17,7 +17,7 @@ import org.fossify.commons.extensions.getProperTextColor
 import kotlin.math.max
 
 /**
- * fast21: the floating bottom bar of the main screen (Camera, Gallery, Search, Settings).
+ * fast21: the floating bottom bar of the main screen (Camera, Gallery, Search, Settings); fast22: icons only by default.
  * Four static views inflated with the screen: no animation, no scroll listener, no redraw of its own. Every size is
  * clamped and every entry point is wrapped, so the bar can never take the app down.
  */
@@ -25,6 +25,7 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
     private var selected = 1
     private var extraBottom = 0
     private var baseMargin = -1
+    private var iconsOnly: Boolean? = null
 
     private val spacer = object : RecyclerView.ItemDecoration() {
         override fun getItemOffsets(outRect: android.graphics.Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
@@ -43,12 +44,13 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
         }
     }
 
-    fun setup(visible: Boolean, onTab: (Int) -> Unit) {
+    fun setup(visible: Boolean, iconsOnly: Boolean, onTab: (Int) -> Unit) {
         try {
             if (!visible) {
                 bar.visibility = View.GONE
                 return
             }
+            applyMode(iconsOnly)
             for (i in 0 until bar.childCount) {
                 bar.getChildAt(i).setOnClickListener { safely { onTab(i) } }
             }
@@ -81,6 +83,42 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
         if (extra != extraBottom) {
             extraBottom = extra
             grid.post { safely { grid.invalidateItemDecorations() } }
+        }
+    }
+
+    /**
+     * fast22: icons only (the default) hides the four labels and lets the pill shrink to its icons, centered; with
+     * labels the bar spans the screen as before. Called before the first layout and again when the screen comes back
+     * from Settings; a call with the mode already shown does nothing. The bar height never changes, so the room kept
+     * under the last folder row stays the same.
+     */
+    fun applyMode(only: Boolean) {
+        safely {
+            if (bar.visibility != View.VISIBLE || iconsOnly == only) return@safely
+            iconsOnly = only
+            val density = bar.context.resources.displayMetrics.density
+            val tabWidth = max(1, (56f * density).toInt())
+            val iconSize = max(1, ((if (only) 24f else 22f) * density).toInt())
+            for (i in 0 until bar.childCount) {
+                val tab = bar.getChildAt(i) as? ViewGroup ?: continue
+                (tab.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+                    lp.width = if (only) tabWidth else 0
+                    lp.weight = if (only) 0f else 1f
+                    tab.layoutParams = lp
+                }
+                (tab.getChildAt(0) as? ImageView)?.let { icon ->
+                    icon.layoutParams?.let { lp ->
+                        lp.width = iconSize
+                        lp.height = iconSize
+                        icon.layoutParams = lp
+                    }
+                }
+                (tab.getChildAt(1) as? TextView)?.visibility = if (only) View.GONE else View.VISIBLE
+            }
+            bar.layoutParams?.let { lp ->
+                lp.width = if (only) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT
+                bar.layoutParams = lp
+            }
         }
     }
 

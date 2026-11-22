@@ -596,6 +596,11 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getInt(THUMBNAIL_SPACING, 1)
         set(thumbnailSpacing) = prefs.edit().putInt(THUMBNAIL_SPACING, thumbnailSpacing).apply()
 
+    // FastGallery fast22: the floating bottom bar shows icons without their labels (default on)
+    var bottomBarIconsOnly: Boolean
+        get() = prefs.getBoolean("bottom_bar_icons_only", true)
+        set(bottomBarIconsOnly) = prefs.edit().putBoolean("bottom_bar_icons_only", bottomBarIconsOnly).apply()
+
     // FastGallery: render every visible thumbnail into the cache overnight while charging (ThumbnailPreloader)
     var nightlyThumbnailPreload: Boolean
         get() = prefs.getBoolean("nightly_thumbnail_preload", true)
