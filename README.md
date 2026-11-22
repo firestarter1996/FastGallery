@@ -8,7 +8,7 @@ Latest release: [v18](https://github.com/firestarter1996/FastGallery/releases/la
 
 ## What is different
 
-| Problem in stock Fossify Gallery | FastGallery v19 |
+| Problem in stock Fossify Gallery | FastGallery v20 |
 |---|---|
 | Every launch and every folder open re walked the folder on disk (17k files in Camera, 20k in Screenshots) before showing anything current | A per folder signature (directory mtime + cached row count + scan options) lets unchanged folders load straight from the app's own database. The album list, the album screen and the file pickers share that cache. Pull to refresh still forces a full rescan. |
 | Thumbnail disk cache capped at 250 MB in `cache/`, so a big library re decoded full photos on every scroll, and Android emptied the cache under storage pressure | Thumbnail cache raised to 4 GB and moved to `no_backup/`. A nightly job (on by default, from midnight while charging) renders every visible album's thumbnails into it. |
@@ -27,7 +27,7 @@ Latest release: [v18](https://github.com/firestarter1996/FastGallery/releases/la
 | Double tap seek used upstream's 1/7 edge zones | Double tap the left or right third to jump 10 s back or forward; more taps within 750 ms stack (20 s, 30 s). A small dark pill with three chevrons shows the total in the tapped half. Setting "Double tap to seek", on by default; off brings back the old edge behaviour. |
 | Seeking in a playing video with the seek bar or a swipe could leave it paused | A playing video keeps playing after the seek and a paused one stays paused, in both video screens |
 | The viewer started a full frame decode for five videos at once, so the one you opened showed up last | The open video decodes first and its neighbours wait their turn (uncached 4K clip on a Pixel 6 Pro: 758 ms before, 440 to 491 ms now) |
-| Camera, search and settings sit in the top bar and the menu | A floating bottom bar with Camera, Gallery, Search and Settings, drawn with plain views: the first thumbnail lands at 159 ms with the bar and 156 ms without on a Pixel 6 Pro, inside the run to run spread |
+| Camera, search and settings sit in the top bar and the menu | A floating bottom bar with Camera, Gallery, Search and Settings, drawn with plain views. It shows icons only by default (the pill shrinks to the four icons and stays centered) and the labels come back with one switch in Settings, "Bottom bar: icons only": the first thumbnail lands at 159 ms with the bar and 156 ms without on a Pixel 6 Pro, inside the run to run spread |
 
 Videos open in the app's own player unless you pick another one; upstream switched to the system player after the first run.
 
