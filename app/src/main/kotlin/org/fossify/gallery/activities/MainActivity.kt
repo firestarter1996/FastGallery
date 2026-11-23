@@ -389,6 +389,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         super.onResume()
         mPollAllowed = true
         updateMenuColors()
+        if (BottomTabs.consumeHome()) {   // fast25: Gallery tab on Settings
+            mBottomTabs?.select(1)
+            binding.directoriesGrid.scrollToPosition(0)
+        }
         mBottomTabs?.applyMode(config.bottomBarIconsOnly)
         mBottomTabs?.applyColors()
         config.isThirdPartyIntent = false

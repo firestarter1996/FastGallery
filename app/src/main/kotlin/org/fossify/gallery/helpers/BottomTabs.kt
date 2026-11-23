@@ -21,7 +21,25 @@ import kotlin.math.max
  * Four static views inflated with the screen: no animation, no scroll listener, no redraw of its own. Every size is
  * clamped and every entry point is wrapped, so the bar can never take the app down.
  */
-class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) {
+class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView?, private val onRoom: ((Int) -> Unit)? = null) {
+    // fast25: without a grid (Settings) the room under the last row is handed to [onRoom] instead of an item decoration
+    companion object {
+        // fast25: the Gallery tab on Settings goes back to the folder list, closing an album screen in between
+        @Volatile
+        private var homeAt = 0L
+
+        fun requestHome() {
+            homeAt = android.os.SystemClock.uptimeMillis()
+        }
+
+        /** True once, within 3 s of a request. */
+        fun consumeHome(): Boolean {
+            val at = homeAt
+            homeAt = 0L
+            return at != 0L && android.os.SystemClock.uptimeMillis() - at < 3000
+        }
+    }
+
     private var selected = 1
     private var extraBottom = 0
     private var baseMargin = -1
@@ -54,7 +72,7 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
             for (i in 0 until bar.childCount) {
                 bar.getChildAt(i).setOnClickListener { safely { onTab(i) } }
             }
-            grid.addItemDecoration(spacer)
+            grid?.addItemDecoration(spacer)
             bar.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
                 if (bottom - top != oldBottom - oldTop || extraBottom == 0) safely { place() }
             }
@@ -82,7 +100,7 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
         val extra = max(0, bar.height + baseMargin * 2)
         if (extra != extraBottom) {
             extraBottom = extra
-            grid.post { safely { grid.invalidateItemDecorations() } }
+            roomChanged()
         }
     }
 
@@ -139,7 +157,16 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
                 applyMode(iconsOnly)
                 applyColors()
             }
-            grid.post { safely { grid.invalidateItemDecorations() } }
+            roomChanged()
+        }
+    }
+
+    private fun roomChanged() {
+        val g = grid
+        if (g != null) {
+            g.post { safely { g.invalidateItemDecorations() } }
+        } else {
+            safely { onRoom?.invoke(if (bar.visibility == View.VISIBLE) extraBottom else 0) }
         }
     }
 

@@ -1,5 +1,19 @@
 package org.fossify.gallery.activities
 
+import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.MotionEvent
+import android.view.View
+import android.view.inputmethod.InputMethodManager
+import android.widget.TextView
+import androidx.core.graphics.ColorUtils
+import org.fossify.gallery.helpers.BottomTabs
+import org.fossify.gallery.helpers.SettingsSearch
+import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperTextColor
+import org.fossify.gallery.extensions.launchCamera
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -44,12 +58,135 @@ class SettingsActivity : SimpleActivity() {
             padBottomSystem = listOf(binding.settingsNestedScrollview)
         )
         setupMaterialScrollListener(binding.settingsNestedScrollview, binding.settingsAppbar)
+        setupBottomTabs()
+        setupSettingsSearch()
     }
 
     override fun onResume() {
         super.onResume()
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow)
+        // fast25: Settings shows and hides some rows itself here, so the search filter steps aside first
+        mSettingsSearch?.clear()
         setupSettingItems()
+        mSettingsSearch?.let { if (binding.settingsSearchField.text.isNotEmpty()) applySettingsSearch() }
+        updateSearchBarColors()
+        mBottomTabs?.setShown(config.keepBottomBarInAlbums, config.bottomBarIconsOnly)
+        mBottomTabs?.applyColors()
+    }
+
+    // fast25 (owner 11-23-2026: "Fg nav bar should also stay active in settings"): the floating bar, Settings highlighted
+    private var mBottomTabs: BottomTabs? = null
+    private var mSettingsSearch: SettingsSearch? = null
+
+    private fun setupBottomTabs() {
+        try {
+            val bar = binding.settingsBottomBar.root
+            bar.visibility = if (config.keepBottomBarInAlbums) View.VISIBLE else View.GONE
+            val holder = binding.settingsHolder
+            val tabs = BottomTabs(bar, null) { room ->
+                holder.setPadding(holder.paddingLeft, holder.paddingTop, holder.paddingRight, maxOf(0, room))
+            }
+            mBottomTabs = tabs
+            tabs.setup(visible = true, iconsOnly = config.bottomBarIconsOnly) { index ->
+                when (index) {
+                    0 -> launchCamera()
+                    1 -> {
+                        BottomTabs.requestHome()
+                        if (isTaskRoot) startActivity(Intent(this, MainActivity::class.java))
+                        finish()
+                    }
+                    2 -> {
+                        tabs.select(2)
+                        val field = binding.settingsSearchField
+                        binding.settingsNestedScrollview.scrollTo(0, 0)
+                        field.requestFocus()
+                        field.post { showKeyboard(field) }
+                    }
+                    3 -> {
+                        tabs.select(3)
+                        binding.settingsNestedScrollview.smoothScrollTo(0, 0)
+                    }
+                }
+            }
+            tabs.select(3)
+        } catch (_: Throwable) {
+        }
+    }
+
+    // fast25 (owner 11-23-2026: "there should be a search bar at the top of settings page")
+    private fun setupSettingsSearch() {
+        try {
+            val search = SettingsSearch(binding.settingsHolder) { it is TextView }
+            mSettingsSearch = search
+            val field = binding.settingsSearchField
+            field.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    applySettingsSearch()
+                }
+            })
+            field.setOnFocusChangeListener { _, focused ->
+                if (focused) mBottomTabs?.select(2) else if (field.text.isEmpty()) mBottomTabs?.select(3)
+            }
+            field.setOnEditorActionListener { _, _, _ ->
+                hideKeyboard(field)
+                true
+            }
+            binding.settingsSearchClear.setOnClickListener {
+                field.setText("")
+                field.requestFocus()
+                showKeyboard(field)
+            }
+            // the keyboard closes as soon as the list is dragged
+            binding.settingsNestedScrollview.setOnTouchListener { _, ev ->
+                if (ev.actionMasked == MotionEvent.ACTION_MOVE && field.hasFocus()) {
+                    hideKeyboard(field)
+                    field.clearFocus()
+                }
+                false
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun applySettingsSearch() {
+        val text = binding.settingsSearchField.text?.toString() ?: ""
+        val found = mSettingsSearch?.apply(text) ?: -1
+        binding.settingsSearchClear.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+        binding.settingsSearchEmpty.visibility = if (found == 0) View.VISIBLE else View.GONE
+    }
+
+    private fun updateSearchBarColors() {
+        try {
+            val text = getProperTextColor()
+            val back = getProperBackgroundColor()
+            val density = resources.displayMetrics.density
+            binding.settingsSearchBar.background = GradientDrawable().apply {
+                cornerRadius = 24f * density
+                setColor(ColorUtils.blendARGB(back, text, 0.08f))
+            }
+            binding.settingsSearchField.setTextColor(text)
+            binding.settingsSearchField.setHintTextColor(ColorUtils.setAlphaComponent(text, 150))
+            binding.settingsSearchIcon.imageTintList = ColorStateList.valueOf(ColorUtils.setAlphaComponent(text, 190))
+            binding.settingsSearchClear.imageTintList = ColorStateList.valueOf(ColorUtils.setAlphaComponent(text, 190))
+            binding.settingsSearchEmpty.setTextColor(ColorUtils.setAlphaComponent(text, 200))
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun showKeyboard(v: View) {
+        try {
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun hideKeyboard(v: View) {
+        try {
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+        } catch (_: Throwable) {
+        }
     }
 
     private fun setupSettingItems() {
@@ -602,6 +739,7 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsKeepBottomBarInAlbumsHolder.setOnClickListener {
             binding.settingsKeepBottomBarInAlbums.toggle()
             config.keepBottomBarInAlbums = binding.settingsKeepBottomBarInAlbums.isChecked
+            mBottomTabs?.setShown(config.keepBottomBarInAlbums, config.bottomBarIconsOnly)
         }
     }
 

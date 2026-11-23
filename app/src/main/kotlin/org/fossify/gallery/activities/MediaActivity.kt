@@ -213,6 +213,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onResume() {
         super.onResume()
+        if (BottomTabs.consumeHome()) {   // fast25: Gallery tab on Settings
+            if (isTaskRoot) {
+                binding.mediaGrid.scrollToPosition(0)
+            } else {
+                BottomTabs.requestHome()   // MainActivity scrolls to the top
+                finish()
+                return
+            }
+        }
         mPollAllowed = true
         updateMenuColors()
         if (mStoredAnimateGifs != config.animateGifs) {

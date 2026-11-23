@@ -12,5 +12,8 @@
     <string name="fg_tab_search">Search</string>
     <string name="fg_tab_settings">Settings</string>
     <string name="fg_bottom_bar_icons_only">Bottom bar: icons only</string>
-    <string name="fg_keep_bottom_bar_in_albums">Keep navigation bar shown in albums</string>
+    <string name="fg_keep_bottom_bar_in_albums">Keep navigation bar shown in albums and settings</string>
+    <string name="fg_search_settings">Search settings</string>
+    <string name="fg_clear_search">Clear search</string>
+    <string name="fg_no_matching_settings">No matching settings</string>
 </resources>
