@@ -112,6 +112,7 @@ import org.fossify.gallery.extensions.isDownloadsFolder
 import org.fossify.gallery.extensions.launchAbout
 import org.fossify.gallery.extensions.launchCamera
 import org.fossify.gallery.helpers.BottomTabs
+import org.fossify.gallery.helpers.ThumbWarm
 import org.fossify.gallery.extensions.launchSettings
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.movePathsInRecycleBin
@@ -1201,6 +1202,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun itemClicked(path: String) {
+        if (!mIsThirdPartyIntent) ThumbWarm.warmAlbum(this, path)   // fast24: first screen thumbnails decode during the open
         handleLockedFolderOpening(path) { success ->
             if (success) {
                 Intent(this, MediaActivity::class.java).apply {

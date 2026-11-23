@@ -92,6 +92,11 @@ import org.fossify.gallery.helpers.ScanCache
 import org.fossify.gallery.helpers.MediaSnapshot
 import org.fossify.gallery.helpers.PerfTrace
 import org.fossify.gallery.helpers.BottomTabs
+import com.bumptech.glide.ListPreloader
+import com.bumptech.glide.RequestBuilder
+import com.bumptech.glide.util.FixedPreloadSizeProvider
+import org.fossify.gallery.helpers.ThumbSizes
+import org.fossify.gallery.helpers.ThumbWarm
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -580,6 +585,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             setupLayoutManager()
             handleGridSpacing()
+            setupScrollPreloader()
         } else if (mLastSearchedText.isEmpty()) {
             (currAdapter as MediaAdapter).updateMedia(mMedia)
             handleGridSpacing()
@@ -1233,6 +1239,47 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         gridSpacingDecoration()?.items = media
+    }
+
+    // fast24: thumbnails a few rows ahead of a scroll are fetched before their tiles appear (owner 11-23-2026:
+    // "thumbs disappear while fast scroll"), and a few rows of bound tiles are kept when they leave the screen
+    private var mScrollPreloader: RecyclerView.OnScrollListener? = null
+
+    private fun setupScrollPreloader() {
+        try {
+            if (ThumbWarm.preloadDisabled(this)) return
+            val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
+            if (viewType != VIEW_TYPE_GRID) return
+            val spec = ThumbSizes.get(this, "media:${if (mShowAll) "" else mPath}") ?: ThumbSizes.get(this, "media") ?: return
+            val cols = maxOf(1, config.mediaColumnCnt)
+            mScrollPreloader?.let { binding.mediaGrid.removeOnScrollListener(it) }
+            val provider = object : ListPreloader.PreloadModelProvider<Medium> {
+                override fun getPreloadItems(position: Int): List<Medium> {
+                    val m = getMediaAdapter()?.media?.getOrNull(position) as? Medium ?: return emptyList()
+                    return if (m.isSVG()) emptyList() else listOf(m)
+                }
+
+                override fun getPreloadRequestBuilder(item: Medium): RequestBuilder<*> = ThumbWarm.request(this@MediaActivity, item, spec)
+            }
+            val list = ListPreloader(Glide.with(applicationContext), provider, FixedPreloadSizeProvider<Medium>(spec.width, spec.height), cols * 6)
+            // the same bridge as Glide's recyclerview integration (not a dependency here): first visible, visible count, total
+            val preloader = object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                    try {
+                        val lm = rv.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return
+                        val first = lm.findFirstVisibleItemPosition()
+                        if (first == RecyclerView.NO_POSITION) return
+                        val visible = Math.abs(first - lm.findLastVisibleItemPosition())
+                        list.onScroll(null, first, visible, rv.adapter?.itemCount ?: 0)
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+            mScrollPreloader = preloader
+            binding.mediaGrid.addOnScrollListener(preloader)
+            binding.mediaGrid.setItemViewCacheSize(cols * 3)
+        } catch (_: Throwable) {
+        }
     }
 
     private fun gridSpacingDecoration(): GridSpacingItemDecoration? {

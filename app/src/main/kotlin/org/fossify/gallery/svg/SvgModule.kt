@@ -6,6 +6,7 @@ import android.graphics.drawable.PictureDrawable
 import com.bumptech.glide.Glide
 import com.bumptech.glide.GlideBuilder
 import com.bumptech.glide.load.engine.cache.DiskLruCacheFactory
+import com.bumptech.glide.load.engine.cache.MemorySizeCalculator
 import com.bumptech.glide.load.engine.executor.GlideExecutor
 import com.bumptech.glide.Registry
 import com.bumptech.glide.annotation.GlideModule
@@ -47,6 +48,14 @@ class SvgModule : AppGlideModule() {
         // one per frame; 4 readers load the whole first screen of covers at once.
         if (!org.fossify.gallery.helpers.PerfTrace.legacy) {
             builder.setDiskCacheExecutor(GlideExecutor.newDiskCacheBuilder().setThreadCount(4).build())
+        }
+        // fast24 experiment, OFF by default: five screens of memory cache cut fast scroll blanks only from 2.2% to 1.2%
+        // of the grid on top of the scroll preloader, for about 160 MB more memory (6 Pro), so the default stays Glide's
+        // two screens. files/perf_big_mem_cache turns it on for measurements.
+        if (!org.fossify.gallery.helpers.PerfTrace.legacy && File(context.filesDir, "perf_big_mem_cache").exists()) {
+            builder.setMemorySizeCalculator(
+                MemorySizeCalculator.Builder(context).setMemoryCacheScreens(5f).setMaxSizeMultiplier(0.5f).build()
+            )
         }
     }
 
