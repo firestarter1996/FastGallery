@@ -601,6 +601,11 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean("bottom_bar_icons_only", true)
         set(bottomBarIconsOnly) = prefs.edit().putBoolean("bottom_bar_icons_only", bottomBarIconsOnly).apply()
 
+    // fast23: the bottom bar stays on the album grid too (owner 11-23-2026), on by default
+    var keepBottomBarInAlbums: Boolean
+        get() = prefs.getBoolean("keep_bottom_bar_in_albums", true)
+        set(keepBottomBarInAlbums) = prefs.edit().putBoolean("keep_bottom_bar_in_albums", keepBottomBarInAlbums).apply()
+
     // FastGallery: render every visible thumbnail into the cache overnight while charging (ThumbnailPreloader)
     var nightlyThumbnailPreload: Boolean
         get() = prefs.getBoolean("nightly_thumbnail_preload", true)

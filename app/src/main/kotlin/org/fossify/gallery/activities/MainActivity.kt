@@ -571,7 +571,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     // fast21: floating bottom bar (Camera, Gallery, Search, Settings); hidden when another app is picking a file
     private fun setupBottomTabs() {
-        val tabs = BottomTabs(binding.mainBottomBar, binding.directoriesGrid)
+        val tabs = BottomTabs(binding.mainBottomBar.root, binding.directoriesGrid)
         mBottomTabs = tabs
         tabs.setup(visible = !mIsThirdPartyIntent && !PerfTrace.noBottomBar, iconsOnly = config.bottomBarIconsOnly) { index ->
             when (index) {

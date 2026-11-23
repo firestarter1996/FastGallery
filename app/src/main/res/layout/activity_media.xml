@@ -77,4 +77,14 @@
             </com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
     </RelativeLayout>
+
+    <!-- fast23: the same bar stays on the album grid (Settings, Keep navigation bar shown in albums) -->
+    <include
+        android:id="@+id/media_bottom_bar"
+        layout="@layout/fg_bottom_bar"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="12dp" android:visibility="gone" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

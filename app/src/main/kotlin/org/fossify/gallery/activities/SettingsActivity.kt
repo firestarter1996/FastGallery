@@ -95,6 +95,7 @@ class SettingsActivity : SimpleActivity() {
         setupKeepLastModified()
         setupNightlyThumbnailPreload()
         setupBottomBarIconsOnly()
+        setupKeepBottomBarInAlbums()
         setupEnablePullToRefresh()
         setupAllowZoomingImages()
         setupShowHighestQuality()
@@ -593,6 +594,14 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsBottomBarIconsOnlyHolder.setOnClickListener {
             binding.settingsBottomBarIconsOnly.toggle()
             config.bottomBarIconsOnly = binding.settingsBottomBarIconsOnly.isChecked
+        }
+    }
+
+    private fun setupKeepBottomBarInAlbums() {
+        binding.settingsKeepBottomBarInAlbums.isChecked = config.keepBottomBarInAlbums
+        binding.settingsKeepBottomBarInAlbumsHolder.setOnClickListener {
+            binding.settingsKeepBottomBarInAlbums.toggle()
+            config.keepBottomBarInAlbums = binding.settingsKeepBottomBarInAlbums.isChecked
         }
     }
 

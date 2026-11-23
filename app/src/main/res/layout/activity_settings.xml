@@ -909,6 +909,21 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/settings_keep_bottom_bar_in_albums_holder"
+                style="@style/SettingsHolderSwitchStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyMaterialSwitch
+                    android:id="@+id/settings_keep_bottom_bar_in_albums"
+                    style="@style/SettingsSwitchStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/fg_keep_bottom_bar_in_albums" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
                 android:id="@+id/settings_nightly_thumbnail_preload_holder"
                 style="@style/SettingsHolderSwitchStyle"
                 android:layout_width="match_parent"

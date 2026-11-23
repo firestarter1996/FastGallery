@@ -122,6 +122,27 @@ class BottomTabs(private val bar: LinearLayout, private val grid: RecyclerView) 
         }
     }
 
+    /**
+     * fast23: show or hide a bar that was set up with visible = true (the album grid follows Settings, Keep navigation
+     * bar shown in albums). A call with the state already shown does nothing; hidden means GONE, so the grid keeps no
+     * room for it, exactly like a build without the bar.
+     */
+    fun setShown(show: Boolean, iconsOnly: Boolean) {
+        safely {
+            val want = if (show) View.VISIBLE else View.GONE
+            if (bar.visibility == want) {
+                if (show) applyMode(iconsOnly)
+                return@safely
+            }
+            bar.visibility = want
+            if (show) {
+                applyMode(iconsOnly)
+                applyColors()
+            }
+            grid.post { safely { grid.invalidateItemDecorations() } }
+        }
+    }
+
     fun select(index: Int) {
         if (index == selected) return
         selected = index

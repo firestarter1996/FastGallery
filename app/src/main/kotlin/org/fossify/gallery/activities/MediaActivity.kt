@@ -1,5 +1,6 @@
 package org.fossify.gallery.activities
 
+import android.view.View
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -90,6 +91,7 @@ import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.ScanCache
 import org.fossify.gallery.helpers.MediaSnapshot
 import org.fossify.gallery.helpers.PerfTrace
+import org.fossify.gallery.helpers.BottomTabs
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -141,6 +143,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mTempShowHiddenHandler = Handler()
     private var mCurrAsyncTask: GetMediaAsynctask? = null
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
+    private var mBottomTabs: BottomTabs? = null   // fast23
 
     private var mStoredAnimateGifs = true
     private var mStoredCropThumbnails = true
@@ -179,6 +182,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         setupOptionsMenu()
+        setupBottomTabs()
         refreshMenuItems()
         storeStateVariables()
         setupEdgeToEdge(
@@ -243,6 +247,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         refreshMenuItems()
+        mBottomTabs?.setShown(bottomTabsWanted(), config.bottomBarIconsOnly)
+        mBottomTabs?.applyColors()
 
         binding.mediaFastscroller.updateColors(primaryColor)
         binding.mediaRefreshLayout.isEnabled = config.enablePullToRefresh
@@ -404,6 +410,46 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             return@setOnMenuItemClickListener true
         }
+    }
+
+    // fast23: the folder list's bottom bar on the album grid too; never for another app's picker
+    private fun bottomTabsAllowed() = !mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent && !PerfTrace.noBottomBar
+
+    private fun bottomTabsWanted() = bottomTabsAllowed() && config.keepBottomBarInAlbums
+
+    private fun setupBottomTabs() {
+        if (!bottomTabsAllowed()) return
+        val bar = binding.mediaBottomBar.root
+        // decided before the first layout, so the grid never jumps when the bar appears
+        bar.visibility = if (bottomTabsWanted()) View.VISIBLE else View.GONE
+        val tabs = BottomTabs(bar, binding.mediaGrid)
+        mBottomTabs = tabs
+        tabs.setup(visible = true, iconsOnly = config.bottomBarIconsOnly) { index ->
+            when (index) {
+                0 -> launchCamera()
+                1 -> {
+                    if (binding.mediaMenu.isSearchOpen) binding.mediaMenu.closeSearch()
+                    if (isTaskRoot) binding.mediaGrid.scrollToPosition(0) else finish()
+                }
+                2 -> {
+                    tabs.select(2)
+                    binding.mediaMenu.focusView()
+                    binding.mediaMenu.post {
+                        try {
+                            val field = currentFocus ?: binding.mediaMenu.findFocus()
+                            if (field != null) {
+                                val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                imm.showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                3 -> launchSettings()
+            }
+        }
+        binding.mediaMenu.onSearchOpenListener = { tabs.select(2) }
+        binding.mediaMenu.onSearchClosedListener = { tabs.select(1) }
     }
 
     private fun startSlideshow() {
@@ -880,12 +926,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val spacing = config.thumbnailSpacing
             val useGridPosition = media.firstOrNull() is ThumbnailSection
 
-            var currentGridDecoration: GridSpacingItemDecoration? = null
-            if (binding.mediaGrid.itemDecorationCount > 0) {
-                currentGridDecoration =
-                    binding.mediaGrid.getItemDecorationAt(0) as GridSpacingItemDecoration
-                currentGridDecoration.items = media
-            }
+            // fast23: the bottom bar adds its own decoration, so look the spacing one up by type
+            val currentGridDecoration = gridSpacingDecoration()
+            currentGridDecoration?.items = media
 
             val newGridDecoration = GridSpacingItemDecoration(
                 spanCount = spanCount,
@@ -1189,11 +1232,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
         }
 
-        if (binding.mediaGrid.itemDecorationCount > 0) {
-            val currentGridDecoration =
-                binding.mediaGrid.getItemDecorationAt(0) as GridSpacingItemDecoration
-            currentGridDecoration.items = media
+        gridSpacingDecoration()?.items = media
+    }
+
+    private fun gridSpacingDecoration(): GridSpacingItemDecoration? {
+        for (i in 0 until binding.mediaGrid.itemDecorationCount) {
+            (binding.mediaGrid.getItemDecorationAt(i) as? GridSpacingItemDecoration)?.let { return it }
         }
+        return null
     }
 
     private fun setAsDefaultFolder() {
