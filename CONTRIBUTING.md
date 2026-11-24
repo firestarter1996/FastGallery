@@ -19,3 +19,9 @@ the way it is in stock Fossify. Two rules hold for every code path that writes m
 
 `helpers/DbRepair` purges rows that break rule 1 and fixes dates that break rule 2 on every full load.
 `app/src/test/.../MediaVisibilityTest.kt` must pass before a release: `./gradlew testFossDebugUnitTest`.
+
+### Album snapshot survives updates (fast26, 11-23-2026)
+`helpers/DirSnapshot` draws the album grid in the first frame of a cold start. Its key must never carry the app's
+version code again: until fast25 it did, so the first launch after every update showed an empty grid until the Room
+query and the MediaStore scan finished. A build that changes which folders are visible bumps `DirSnapshot.VERSION`
+instead (DbRepair also drops the snapshot whenever its purge changes rows).
